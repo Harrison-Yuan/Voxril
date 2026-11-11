@@ -349,7 +349,7 @@ pub fn export_stft_to_file(wav_path: &Path, out_path: &Path) -> Result<(), Strin
 
     // NPY 格式：魔数 + 版本 + header_len + header + data
     let header = format!("{{'descr': '<f4', 'fortran_order': False, 'shape': ({}, {}, 2), }}", n_frames, n_bins);
-    let mut magic: [u8; 6] = [0x93, b'N', b'U', b'M', b'P', b'Y'];
+    let magic: [u8; 6] = [0x93, b'N', b'U', b'M', b'P', b'Y'];
     let ver: [u8; 2] = [1, 0];
     let header_bytes = header.as_bytes();
     let mut prefix = Vec::new();

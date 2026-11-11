@@ -548,7 +548,7 @@ pub async fn play_accompaniment(audio_path: String, lrc_path: Option<String>, co
 
 /// 停止当前伴奏播放（也清除翻唱人声）
 #[tauri::command]
-pub async fn stop_accompaniment(app: tauri::AppHandle) -> Result<(), String> {
+pub async fn stop_accompaniment(_app: tauri::AppHandle) -> Result<(), String> {
     crate::audio_engine::accompaniment::clear();
     crate::audio_engine::accompaniment::clear_lrc();
     crate::audio_engine::accompaniment::clear_cover();
@@ -661,7 +661,7 @@ pub struct ModelEntry {
 pub async fn list_live_models(state: State<'_, AppState>) -> Result<Vec<ModelEntry>, String> {
     let mut models = Vec::new();
 
-    let project_root = state.project_root.clone();
+    let _project_root = state.project_root.clone();
     let data_dir = state.data_dir.clone();
     let workspace_root = state.workspace_root.read().await;
 

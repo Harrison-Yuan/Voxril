@@ -175,11 +175,9 @@ npm run build  # 先递增补丁版本号，再打包 .dmg
 |---|---|---|
 | `modules/vc/` | **PyTorch MPS** | 语音转换流水线（PyTorch + ONNX 两条路径） |
 | `modules/train/` | **PyTorch** | 预处理、F0 提取、特征提取、训练 |
-| `modules/uvr5/` | **MDX-Net + VR** | 人声分离推理 |
+| `modules/vocal_sep_mps.py` | **audio-separator** | 人声分离（BS-RoFormer / MDX-Net，适配 MPS） |
 | `lib/infer_pack/` | **RVC v2** | 合成器核心（编码器、生成器、F0 预测器） |
 | `lib/hubert_mps.py` | **ONNX / MPS** | HuBERT 特征提取 |
-| `lib/mlx/` | **Apple MLX** | 实验性推理后端 |
-| `modules/realtime_worker.py` | **多进程** | 实时音频流式处理 |
 
 ### 处理流程
 

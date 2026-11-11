@@ -17,7 +17,6 @@ use state::AppState;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::Arc;
 use tauri::Emitter;
 use tauri::Manager;

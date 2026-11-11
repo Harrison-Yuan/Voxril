@@ -43,15 +43,6 @@ weights/
 /logs
 /weights
 
-# Legacy Gradio artifacts
-/TEMP
-*.pyd
-tools/aria2c/
-tools/flag.txt
-/pretrained
-/pretrained_v2
-/uvr5_weights
-
 # Large model files (included in Tauri bundle, not tracked in git)
 assets/hubert/contentvec-f.onnx
 assets/rmvpe/rmvpe.onnx
@@ -72,7 +63,6 @@ rmvpe.pt
 hubert_inputs.pth
 rmvpe_inputs.pth
 content-vec-best.pt
-hubert_mlx.npz
 assets/hubert/contentvec/
 
 # Database (user's local)
@@ -80,10 +70,9 @@ rvc.db
 web/rvc.db
 .workspace-config.json
 
-# FFmpeg
+# FFmpeg binaries
 ffmpeg.*
 ffprobe.*
-/runtime
 
 # Datasets
 dataset/

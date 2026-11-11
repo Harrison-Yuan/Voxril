@@ -175,11 +175,9 @@ Push a `v*` tag. [release.yml](.github/workflows/release.yml) builds an `aarch64
 |---|---|---|
 | `modules/vc/` | **PyTorch MPS** | Voice conversion pipeline (PyTorch + ONNX paths) |
 | `modules/train/` | **PyTorch** | Preprocess, F0 extraction, feature extraction, training |
-| `modules/uvr5/` | **MDX-Net + VR** | Vocal separation inference |
+| `modules/vocal_sep_mps.py` | **audio-separator** | Vocal separation (BS-RoFormer / MDX-Net, MPS aware) |
 | `lib/infer_pack/` | **RVC v2** | Synthesizer core (encoder, generator, F0 predictors) |
 | `lib/hubert_mps.py` | **ONNX / MPS** | HuBERT feature extraction |
-| `lib/mlx/` | **Apple MLX** | Experimental inference backend |
-| `modules/realtime_worker.py` | **Multiprocessing** | Real-time audio streaming worker |
 
 ### Processing pipeline
 

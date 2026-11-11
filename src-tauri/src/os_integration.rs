@@ -4,7 +4,6 @@
 //! - 系统主题检测
 
 use std::path::PathBuf;
-use tauri::{Emitter, Manager};
 use tauri::WebviewWindow;
 
 const WINDOW_STATE_FILE: &str = "window_state.json";

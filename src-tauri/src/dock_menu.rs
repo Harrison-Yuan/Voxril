@@ -4,7 +4,7 @@
 //! - 程序坞图标: 右键/长按弹出快捷菜单（含最近项目和快捷操作）
 //! - 点击 Dock 图标: 聚焦时通知前端
 
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::Emitter;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 
 /// 注册 macOS 菜单栏和 Dock 菜单

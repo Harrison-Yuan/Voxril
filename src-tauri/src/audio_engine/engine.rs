@@ -62,8 +62,8 @@ fn run_correction_relay(
     f0_score: Vec<f32>,
     running: Arc<AtomicBool>,
     app_handle: tauri::AppHandle,
-    active_flag: Arc<RwLock<bool>>,
-    playback_counter: Arc<AtomicUsize>,
+    _active_flag: Arc<RwLock<bool>>,
+    _playback_counter: Arc<AtomicUsize>,
     data_ready: Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>,
 ) {
     boost_audio_thread_priority();
@@ -396,7 +396,7 @@ pub fn start_live_engine(
         HeapRb::<f32>::new(config::OUTPUT_RING_CAPACITY).split();
 
     let mut has_bh = false;
-    let (mut bh_vocal_prod, mut bh_vocal_cons) = if route.is_blackhole() {
+    let (mut bh_vocal_prod, bh_vocal_cons) = if route.is_blackhole() {
         has_bh = true;
         let (p, c) = HeapRb::<f32>::new(config::OUTPUT_RING_CAPACITY).split();
         (p, c)
@@ -404,14 +404,14 @@ pub fn start_live_engine(
         let (p, c) = HeapRb::<f32>::new(1).split();
         (p, c)
     };
-    let (mut bh_acc_prod, mut bh_acc_cons) = if has_bh {
+    let (bh_acc_prod, bh_acc_cons) = if has_bh {
         let (p, c) = HeapRb::<f32>::new(config::ACC_RING_CAPACITY).split();
         (p, c)
     } else {
         let (p, c) = HeapRb::<f32>::new(1).split();
         (p, c)
     };
-    let (mut bh_cover_prod, mut bh_cover_cons) = if has_bh {
+    let (bh_cover_prod, bh_cover_cons) = if has_bh {
         let (p, c) = HeapRb::<f32>::new(config::ACC_RING_CAPACITY).split();
         (p, c)
     } else {
@@ -429,9 +429,9 @@ pub fn start_live_engine(
     let playback_counter = Arc::new(AtomicUsize::new(0));
     let acc_drop_samples = Arc::new(AtomicUsize::new(0));
     let cover_drop_samples = Arc::new(AtomicUsize::new(0));
-    let mic_drop_samples = Arc::new(AtomicUsize::new(0));
-    let vocal_drop_samples = Arc::new(AtomicUsize::new(0));
-    let vocal_drop_chunks = Arc::new(AtomicUsize::new(0));
+    let _mic_drop_samples = Arc::new(AtomicUsize::new(0));
+    let _vocal_drop_samples = Arc::new(AtomicUsize::new(0));
+    let _vocal_drop_chunks = Arc::new(AtomicUsize::new(0));
     let vocal_underrun_samples = Arc::new(AtomicUsize::new(0));
     let vocal_underrun_callbacks = Arc::new(AtomicUsize::new(0));
     let vocal_buf_level = Arc::new(AtomicUsize::new(0));
@@ -544,7 +544,7 @@ pub fn start_live_engine(
 
     let running_relay = running.clone();
     let app_relay = app_handle.clone();
-    let playback_counter_relay = playback_counter.clone();
+    let _playback_counter_relay = playback_counter.clone();
     F0_UP_KEY.store(config.f0_up_key, Ordering::Relaxed);
     let config_cover = config.cover_path.clone();
     let active_flag_post = active_flag.clone();
@@ -975,7 +975,7 @@ pub fn start_live_engine(
     let vocal_underrun_samples_out = vocal_underrun_samples.clone();
     let vocal_underrun_callbacks_out = vocal_underrun_callbacks.clone();
     let vocal_buf_level_out = vocal_buf_level.clone();
-    let mut output_resampler = if out_sr != engine_sr {
+    let output_resampler = if out_sr != engine_sr {
         let chunk_size = 512;
         Some(StreamResampler::new(engine_sr, out_sr, chunk_size))
     } else {

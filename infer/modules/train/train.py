@@ -29,21 +29,6 @@ if torch.backends.mps.is_available():
     os.environ.pop("PYTORCH_MPS_HIGH_WATERMARK_RATIO", None)
     os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 
-try:
-    import intel_extension_for_pytorch as ipex  # pylint: disable=import-error, unused-import
-
-    if torch.xpu.is_available():
-        from infer.modules.ipex import ipex_init
-        from infer.modules.ipex.gradscaler import gradscaler_init
-        from torch.xpu.amp import autocast
-
-        GradScaler = gradscaler_init()
-        ipex_init()
-    else:
-        raise ImportError
-except Exception:
-    pass
-
 if torch.cuda.is_available():
     from torch.cuda.amp import GradScaler, autocast
 elif torch.backends.mps.is_available():
