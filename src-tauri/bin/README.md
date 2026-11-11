@@ -5,14 +5,13 @@
 ```
 src-tauri/bin/
 ├── ffmpeg/              # 当前 macOS Apple Silicon 使用的 ffmpeg（Mach-O arm64）
-├── macos-x64/           # 预留：Intel macOS（x86_64）ffmpeg
 └── windows-x64/         # 预留：Windows x64 ffmpeg.exe
 ```
 
 说明：
 
-- 正式支持平台为 **macOS (Apple Silicon)**；`macos-x64/`、`windows-x64/` 为扩展预留位。
-- 新增平台时：
+- 正式支持平台为 **macOS (Apple Silicon)**；Intel Mac 已明确不支持（无 MPS，且 `ort` 没有 `x86_64-apple-darwin` 预编译包）。
+- `windows-x64/` 为扩展预留位。新增平台时：
   1. 把对应二进制放进平台目录（Windows 文件名必须是 `ffmpeg.exe`）
   2. 在 `src-tauri/tauri.<platform>.conf.json` 的 `bundle.resources` 里声明该目录
   3. 代码侧通过 `src-tauri/src/platform/mod.rs::ffmpeg_filename()` 取文件名，无需改业务逻辑

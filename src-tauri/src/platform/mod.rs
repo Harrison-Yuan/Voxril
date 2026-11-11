@@ -1,7 +1,7 @@
 //! 平台适配层
 //!
-//! 正式支持：macOS (Apple Silicon)。
-//! Intel macOS 与 Windows 的差异点集中在这里，便于后续扩展，不影响现有 macOS 逻辑。
+//! 正式支持：macOS (Apple Silicon)；Intel Mac 不提供支持。
+//! Windows 的差异点集中在这里，便于后续扩展，不影响现有 macOS 逻辑。
 //!
 //! 扩展指引：
 //! - 新增平台二进制：放到 `src-tauri/bin/<platform>-<arch>/`
