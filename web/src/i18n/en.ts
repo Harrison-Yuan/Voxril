@@ -1,5 +1,5 @@
 const en = {
-  'app.name': 'VoiceCraft',
+  'app.name': 'Cantarix',
 
   'nav.train': 'Training',
   'nav.uvr': 'Vocal Separation',

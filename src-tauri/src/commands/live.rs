@@ -926,11 +926,11 @@ pub async fn extract_f0_profile(
 
         // 3. 用 decode-audio 加载音频为 48kHz f32 PCM
         //    优先使用当前可执行文件路径（兼容 cargo run 和 bundle 两种场景）
-        let bin_path = std::env::var("VOICECRAFT_BIN")
+        let bin_path = std::env::var("CANTARIX_BIN")
             .unwrap_or_else(|_| {
                 std::env::current_exe()
                     .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_else(|_| "voicecraft".into())
+                    .unwrap_or_else(|_| "cantarix".into())
             });
         let output = std::process::Command::new(&bin_path)
             .args(&["decode-audio", "--input", &audio_path, "--sr", "48000"])

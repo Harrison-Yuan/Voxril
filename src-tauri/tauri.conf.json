@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2.0",
-  "productName": "VoiceCraft",
+  "productName": "Cantarix",
   "version": "0.1.14",
-  "identifier": "com.voicecraft.app",
+  "identifier": "com.cantarix.app",
   "build": {
     "beforeDevCommand": "npm --prefix web run dev",
     "devUrl": "http://localhost:1420",
@@ -27,8 +27,8 @@
     ],
     "copyright": "AGPL-3.0 License",
     "category": "Entertainment",
-    "shortDescription": "VoiceCraft - AI Voice Conversion & Training",
-    "longDescription": "VoiceCraft is a macOS AI voice conversion desktop app powered by RVC. Train voice models, separate vocals, convert audio in real-time. Optimized for Apple Silicon.",
+    "shortDescription": "Cantarix - Open-source AI Voice Changer & Training for macOS",
+    "longDescription": "Cantarix is an open-source AI voice changer for macOS. Train your own voice model, separate vocals, convert audio offline, and sing in real time with 100% local inference. Powered by RVC and optimized for Apple Silicon.",
     "macOS": {
       "minimumSystemVersion": "14.0",
       "exceptionDomain": "",
@@ -43,7 +43,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "VoiceCraft",
+        "title": "Cantarix",
         "width": 1400,
         "height": 900,
         "resizable": true,
@@ -54,7 +54,7 @@
       },
       {
         "label": "desktop-lyrics",
-        "title": "VoiceCraft \u6b4c\u8bcd",
+        "title": "Cantarix \u6b4c\u8bcd",
         "width": 800,
         "height": 160,
         "minWidth": 400,

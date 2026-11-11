@@ -92,7 +92,7 @@ export default function TitleBar() {
           color: 'var(--color-text-primary)',
           letterSpacing: '-0.01em',
         }}>
-          VoiceCraft
+          Cantarix
         </span>
       </Link>
 

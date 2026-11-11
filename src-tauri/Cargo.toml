@@ -1,15 +1,15 @@
 [package]
-name = "voicecraft"
+name = "cantarix"
 version = "0.1.14"
-description = "VoiceCraft - AI Voice Conversion & Training on macOS"
+description = "Cantarix - AI Voice Conversion & Training on macOS"
 authors = ["RVC Team"]
 license = "AGPL-3.0"
 repository = "https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI"
 edition = "2021"
-default-run = "voicecraft"
+default-run = "cantarix"
 
 [[bin]]
-name = "voicecraft"
+name = "cantarix"
 path = "src/main.rs"
 
 [[bin]]

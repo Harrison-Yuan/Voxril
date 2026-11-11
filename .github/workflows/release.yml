@@ -64,11 +64,11 @@ jobs:
           files: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
           generate_release_notes: true
           body: |
-            ## VoiceCraft ${{ github.ref_name }}
+            ## Cantarix ${{ github.ref_name }}
 
             ### 安装方式
             1. 下载 `.dmg` 文件并打开
-            2. 将 VoiceCraft 拖入 Applications
+            2. 将 Cantarix 拖入 Applications
             3. 首次运行会提示安装 Python 依赖（需本机已安装 Python 3.10+，建议 Homebrew）
             4. 首次运行会自动下载模型文件（HuBERT / RMVPE / 预训练底模）
 
@@ -80,5 +80,5 @@ jobs:
             该安装包由 CI 构建、未做 Apple 公证。若打开时提示“已损坏”或“无法验证开发者”，执行：
 
             ```bash
-            xattr -dr com.apple.quarantine /Applications/VoiceCraft.app
+            xattr -dr com.apple.quarantine /Applications/Cantarix.app
             ```
