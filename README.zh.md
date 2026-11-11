@@ -96,24 +96,24 @@
 
 ## 🛠 开发
 
-前置条件：Rust 工具链、Node 20+、Python 3.10+。
+前置条件：Rust 工具链、Node 20+、pnpm 10+、Python 3.10+。
 
 ```bash
 git clone https://github.com/Harrison-Yuan/Voxril.git
 cd Voxril
 
-# Python 侧 —— `npm run build` 会用这个 .venv 跑 tools/verify_build_deps.py --quick
+# Python 侧 —— `pnpm build` 会用这个 .venv 跑 tools/verify_build_deps.py --quick
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# 前端依赖
-npm --prefix web ci
+# 前端依赖（pnpm workspace 已包含 web/）
+pnpm install
 
 # Tauri CLI
-npm install -g @tauri-apps/cli@^2   # 或者：cargo install tauri-cli --version "^2"
+cargo install tauri-cli --version "^2"   # 或：npm install -g @tauri-apps/cli@^2
 
-npm run dev    # 等价于 cd src-tauri && cargo tauri dev
-npm run build  # 先递增补丁版本号，再打包 .dmg
+pnpm dev    # 启动 Vite (1420) + Tauri 窗口
+pnpm build  # 先递增补丁版本号，再打包 .dmg
 ```
 
 ### 发版

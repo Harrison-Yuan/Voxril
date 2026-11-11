@@ -20,12 +20,15 @@ jobs:
         id: ver
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -43,8 +46,8 @@ jobs:
 
       - name: Build frontend
         run: |
-          npm --prefix web ci
-          npm --prefix web run build
+          pnpm install --frozen-lockfile
+          pnpm -C web run build
 
       # 覆盖 beforeBuildCommand：CI 里没有 .venv，跳过 bump_version 与依赖校验，
       # 版本号直接取 tag（v0.1.15 → 0.1.15）。

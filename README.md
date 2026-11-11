@@ -96,24 +96,24 @@
 
 ## 🛠 Development
 
-Prerequisites: Rust toolchain, Node 20+, Python 3.10+.
+Prerequisites: Rust toolchain, Node 20+, pnpm 10+, Python 3.10+.
 
 ```bash
 git clone https://github.com/Harrison-Yuan/Voxril.git
 cd Voxril
 
-# Python side — `npm run build` runs tools/verify_build_deps.py --quick against this venv
+# Python side — `pnpm build` runs tools/verify_build_deps.py --quick against this venv
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# Frontend dependencies
-npm --prefix web ci
+# Frontend dependencies (pnpm workspace includes web/)
+pnpm install
 
 # Tauri CLI
-npm install -g @tauri-apps/cli@^2   # or: cargo install tauri-cli --version "^2"
+cargo install tauri-cli --version "^2"   # or: npm install -g @tauri-apps/cli@^2
 
-npm run dev    # cd src-tauri && cargo tauri dev
-npm run build  # bumps the patch version, then builds the .dmg
+pnpm dev    # starts Vite on :1420 + the Tauri window
+pnpm build  # bumps the patch version, then builds the .dmg
 ```
 
 ### Releasing
