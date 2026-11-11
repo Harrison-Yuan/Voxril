@@ -1,7 +1,7 @@
 {
   "name": "voxril",
   "private": true,
-  "version": "0.1.14",
+  "version": "0.2.0",
   "scripts": {
     "dev": "cd src-tauri && cargo tauri dev",
     "build": "cd src-tauri && cargo run --bin bump_version && cargo tauri build",
