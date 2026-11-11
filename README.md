@@ -12,7 +12,7 @@
 
 **Open-source AI voice changer for macOS — train your own voice model, convert vocals offline, and sing in real time with 100% local AI.**
 
-> AI voice conversion · voice cloning · real-time karaoke · vocal separation · RVC-compatible models · Apple Silicon. No cloud, no API keys, no subscriptions — the open-source alternative to ElevenLabs.
+> AI voice conversion · voice cloning · real-time karaoke · vocal separation · RVC v2 models · Apple Silicon. No cloud, no API keys, no subscriptions — the open-source alternative to ElevenLabs.
 
 <p>
   <a href="https://github.com/Harrison-Yuan/Voxril/releases">
@@ -28,16 +28,12 @@
 
 <p>
   <img src="https://img.shields.io/badge/Rust-000?logo=rust&logoColor=fff&style=flat-square" alt="Rust">
-  <img src="https://img.shields.io/badge/Tauri-000?logo=tauri&logoColor=ffc131&style=flat-square" alt="Tauri">
+  <img src="https://img.shields.io/badge/Tauri_2-000?logo=tauri&logoColor=ffc131&style=flat-square" alt="Tauri 2">
   <img src="https://img.shields.io/badge/PyTorch_MPS-000?logo=pytorch&logoColor=ee4c2c&style=flat-square" alt="PyTorch MPS">
-  <img src="https://img.shields.io/badge/React-000?logo=react&logoColor=61dafb&style=flat-square" alt="React">
-  <img src="https://img.shields.io/badge/macOS_14+-000?logo=apple&logoColor=fff&style=flat-square" alt="macOS">
+  <img src="https://img.shields.io/badge/React_19-000?logo=react&logoColor=61dafb&style=flat-square" alt="React 19">
+  <img src="https://img.shields.io/badge/macOS_14+-000?logo=apple&logoColor=fff&style=flat-square" alt="macOS 14+">
   <img src="https://img.shields.io/badge/Apple_Silicon_M1–M4-000?logo=apple&logoColor=fff&style=flat-square" alt="Apple Silicon">
 </p>
-
-https://github.com/user-attachments/assets/00000000-0000-0000-0000-000000000000
-
-<!-- Demo GIF: 15s screen recording showing: open → select model → sing → real-time AI voice -->
 
 </div>
 
@@ -45,67 +41,95 @@ https://github.com/user-attachments/assets/00000000-0000-0000-0000-000000000000
 
 ## 💡 Why Voxril?
 
-| Stop paying ElevenLabs $99/mo | Voxril is 100% free, open-source, and runs entirely on your Mac |
+| The usual pain | Voxril |
 |---|---|
-| Tired of RVC-WebUI's buggy Gradio UI | Voxril is a **native desktop app** — Tauri + Rust, polished UX |
-| Worried about privacy? | Your voice data **never leaves your machine** |
-| Want real-time voice changing? | **Sub-100ms latency** on Apple Silicon — sing in real time with AI voice |
-| Only have 10 minutes of audio? | Train a usable voice model from **just 10 minutes of samples** |
+| Cloud voice services charge monthly fees | Free and open source, runs entirely on your Mac |
+| RVC-WebUI means a Gradio page in a browser | Native desktop app — Tauri 2 + Rust + React 19 |
+| Voice audio uploaded to someone else's server | Audio never leaves the machine; inference is local (PyTorch MPS / ONNX Runtime) |
+| Want to sing with a different voice in real time | Live mode: mic → RVC → accompaniment, with LRC lyrics overlay |
+| No dataset ready | Built-in RVC v2 pipeline trains from a few minutes of clean vocals |
 
 ---
 
 ## ✨ Features
 
-| 🎤 **Train** | 🎵 **Separate** | 🔄 **Convert** | 🎙️ **Real-time Karaoke** |
+| 🎤 Train | 🎵 Separate | 🔄 Convert | 🎙️ Live Singing |
 |---|---|---|---|
-| Train voice models from your audio samples | Isolate vocals from any song (BS-RoFormer) | Convert any audio into your trained voice | Sing with AI voice + accompaniment, zero latency |
+| preprocess → F0 / feature extraction → train → FAISS index | BS-RoFormer + 4 MDX-Net models | offline conversion with a trained model and retrieval index | mic input converted in real time over accompaniment playback |
 
-- **Native macOS app** — not a web wrapper, not a Gradio UI
-- **Apple Silicon native** — M1–M4 optimized with PyTorch MPS
-- **One-click install** — DMG download, first launch auto-configures everything
-- **End-to-end pipeline** — separation → training → conversion → karaoke, all in one app
+- **Native macOS app** — Tauri 2 shell, Rust audio engine, React frontend
+- **Local inference** — PyTorch MPS for RVC, ONNX Runtime for HuBERT / RMVPE / FCPE
+- **Automatic first-run setup** — creates a Python venv and downloads the ~1 GB base models
+- **Desktop lyrics window** — always-on-top transparent overlay driven by LRC + live events
+- **Workspace & history** — SQLite keeps experiments/records, workspace directory is configurable
+- **End-to-end pipeline** — separation → training → conversion → live singing in one app
 
 ---
 
-## 🚀 Quick Start
+## 📦 Requirements
 
-```bash
-# 1. Download the latest .dmg from Releases → drag to Applications → open
+| Item | Detail |
+|---|---|
+| OS | macOS 14 (Sonoma) or newer |
+| Chip | Apple Silicon (M1–M4). **Intel Macs are not supported** — the bundled `ffmpeg` is arm64 and MPS requires Apple Silicon |
+| Python | 3.10+ installed on the system (Homebrew recommended). The app does **not** bundle a Python runtime |
+| Disk | ~6 GB free (Python venv ≈4 GB + base models ≈1 GB) |
+| Network | Needed on first launch (PyPI, HuggingFace, UVR model repos) |
+| Optional | [BlackHole 2ch](https://existential.audio/blackhole/) if you want to route Voxril's output into a DAW or streaming software |
 
-# 2. First launch auto-installs:
-#    - Python virtual environment + dependencies (~3 min)
-#    - AI models: HuBERT, RMVPE, BS-RoFormer (~5 min)
+---
 
-# 3. That's it. Start training or converting.
-```
+## 🚀 Install
 
-**System Requirements:** macOS 14.0+ · Apple Silicon (M1/M2/M3/M4) · Python 3.9+ · 5GB free disk
+1. Download the latest `.dmg` from [Releases](https://github.com/Harrison-Yuan/Voxril/releases) and drag Voxril into **Applications**.
+2. The build is **not notarized by Apple**. If macOS blocks it, run:
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Voxril.app
+   ```
+3. First launch configures everything by itself:
+   - creates `~/Library/Application Support/com.rvc.webui/venv` and installs `requirements.lock`
+   - downloads `vec-768-layer-12` (HuBERT), RMVPE, FCPE, RVC v2 pretrained `f0G40k` / `f0D40k`, BS-RoFormer and the MDX-Net models
+   - progress is streamed into the app — no terminal work required
+4. Choose a workspace folder, then go **Models → Train → Convert / Live**.
 
-### Development
+---
+
+## 🛠 Development
+
+Prerequisites: Rust toolchain, Node 20+, Python 3.10+.
 
 ```bash
 git clone https://github.com/Harrison-Yuan/Voxril.git
-cd voxril
+cd Voxril
 
-python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
-cd web && npm install && cd ..
+# Python side — `npm run build` runs tools/verify_build_deps.py --quick against this venv
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 
-npm run tauri:dev    # hot-reload dev mode
-npm run tauri:build  # production .dmg
+# Frontend dependencies
+npm --prefix web ci
+
+# Tauri CLI
+npm install -g @tauri-apps/cli@^2   # or: cargo install tauri-cli --version "^2"
+
+npm run dev    # cd src-tauri && cargo tauri dev
+npm run build  # bumps the patch version, then builds the .dmg
 ```
+
+### Releasing
+
+Push a `v*` tag. [release.yml](.github/workflows/release.yml) builds an `aarch64-apple-darwin` DMG on `macos-latest`, takes the version from the tag, skips the local `beforeBuildCommand` (CI has no `.venv`) and attaches the DMG to a GitHub Release.
 
 ---
 
 ## 🧠 Technical Architecture
 
-### System Overview
-
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    Desktop Shell (Tauri 2.0)              │
+│                   Desktop Shell (Tauri 2)                │
 │  ┌──────────────┐  ┌──────────────┐  ┌────────────────┐ │
-│  │  React SPA   │◀─▶  Rust Core  │◀─▶  Python Engine  │ │
-│  │  (Vite + TS) │  │  (Commands) │  │  (PyTorch MPS)  │ │
+│  │  React SPA   │◀─▶  Rust Core   │◀─▶  Python Engine  │ │
+│  │  (Vite + TS) │  │  (Commands)  │  │  (PyTorch MPS)  │ │
 │  └──────────────┘  └──────────────┘  └────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -114,125 +138,141 @@ npm run tauri:build  # production .dmg
 
 | Layer | Technology | Purpose |
 |---|---|---|
-| Framework | **React 19 + TypeScript** | UI rendering |
-| Build | **Vite 6** | Fast HMR, optimized builds |
+| Framework | **React 19 + TypeScript 6** | UI rendering |
+| Build | **Vite 8** | Dev server and production build |
 | UI Library | **Ant Design 6** | Component system, dark mode |
-| State | **Zustand** | Lightweight global state |
-| Routing | **React Router 6** | SPA page routing |
+| State | **Zustand 5** | Lightweight global state |
+| Routing | **React Router 7** | SPA routing |
 | i18n | **React Context** | Chinese / English switching |
 
 **Pages:**
 
 | Route | Page | Description |
 |---|---|---|
-| `/live` | **AI Live Singing** | Real-time pitch correction (Phase Vocoder), F0 detection, lyrics sync |
-| `/train` | **Training** | Multi-step pipeline: preprocess → F0/audio extraction → train → index |
-| `/infer` | **Voice Conversion** | Convert audio with trained model + FAISS search |
-| `/uvr` | **Vocal Separation** | Separate vocals from accompaniment |
-| `/models` | **Models** | Manage base deps (HuBERT, RMVPE, BS-RoFormer) and trained voice models |
+| `/live` | **AI Live Singing** | Real-time conversion, pitch tracking, accompaniment, lyrics |
+| `/train` | **Training** | Multi-step pipeline: preprocess → F0 / feature extraction → train → index |
+| `/infer` | **Voice Conversion** | Offline conversion with a trained model + FAISS retrieval |
+| `/uvr` | **Vocal Separation** | Extract vocals / accompaniment |
+| `/models` | **Models** | Base models (HuBERT, RMVPE, FCPE, BS-RoFormer, MDX) and trained voice models |
 | `/settings` | **Settings** | Language, workspace paths, appearance |
 | `/desktop-lyrics` | **Desktop Lyrics** | Always-on-top floating lyrics window |
 
-### Rust Backend (`src-tauri/src/`)
+### Rust backend (`src-tauri/src/`)
 
 | Module | Responsibility |
 |---|---|
-| `commands/` | Tauri command handlers for each page (live, infer, train, uvr, config, audio, file, history, workspace) |
-| `audio_engine/` | Real-time audio DSP: Phase Vocoder pitch correction, accompaniment playback, RVC inference, LRC parsing |
-| `python.rs` | Python subprocess management (venv, script execution) |
-| `database.rs` | SQLite database for training experiments |
-| `state.rs` | Global application state (Mutex-guarded) |
+| `commands/` | Tauri command handlers per page (live, infer, train, uvr, config, audio, file, history, workspace, workflow) |
+| `audio_engine/` | Real-time DSP: RVC inference, phase-vocoder pitch correction, accompaniment playback, mixer, BlackHole routing, auto-tune, LRC parsing |
+| `python.rs` | Python discovery, venv handling, streamed subprocess execution |
+| `database.rs` | SQLite storage for experiments and history |
+| `state.rs` | Global application state |
 | `events.rs` | Tauri event emission (metrics, logs, progress) |
-| `cleanup.rs` | Graceful shutdown and resource cleanup |
+| `process_killer.rs` / `cleanup.rs` | Child-process tracking and graceful shutdown |
 
-### Python Inference Engine (`infer/`)
+### Python engine (`infer/`)
 
 | Submodule | Technology | Purpose |
 |---|---|---|
-| `modules/vc/` | **PyTorch MPS** | Voice conversion pipeline (pytorch + onnx inference) |
-| `modules/train/` | **PyTorch** | Training: preprocess, F0 extraction, feature extraction, model training |
+| `modules/vc/` | **PyTorch MPS** | Voice conversion pipeline (PyTorch + ONNX paths) |
+| `modules/train/` | **PyTorch** | Preprocess, F0 extraction, feature extraction, training |
 | `modules/uvr5/` | **MDX-Net + VR** | Vocal separation inference |
-| `lib/infer_pack/` | **RVC v2** | Core synthesizer (HuBERT encoder, generator, F0 predictors) |
-| `lib/mlx/` | **Apple MLX** | Experimental Apple Silicon inference backend |
+| `lib/infer_pack/` | **RVC v2** | Synthesizer core (encoder, generator, F0 predictors) |
+| `lib/hubert_mps.py` | **ONNX / MPS** | HuBERT feature extraction |
+| `lib/mlx/` | **Apple MLX** | Experimental inference backend |
 | `modules/realtime_worker.py` | **Multiprocessing** | Real-time audio streaming worker |
 
-### Processing Pipeline
+### Processing pipeline
 
 ```
                       ┌─────────────────────┐
-                      │   Vocal Separation   │
-                      │   (BS-RoFormer)      │
+                      │   Vocal Separation  │
+                      │   (BS-RoFormer)     │
                       └──────┬──────┬───────┘
                              │      │
                      ┌───────┘      └───────┐
                      ▼                      ▼
               ┌──────────────┐    ┌──────────────────┐
-              │   Vocals     │    │   Accompaniment   │
+              │   Vocals     │    │   Accompaniment  │
               └──────┬───────┘    └──────────────────┘
                      ▼
         ┌──────────────────────────┐
-        │  HuBERT Feature Ext.     │
-        │  + RMVPE Pitch Ext.      │
+        │  HuBERT features         │
+        │  + RMVPE / FCPE pitch    │
         └──────┬──────────┬───────┘
                ▼          ▼
         ┌──────────┐  ┌──────────┐
-        │  FAISS   │  │  F0 Curve│
-        │  Index   │  │  (FCPE)  │
+        │  FAISS   │  │  F0 curve│
+        │  index   │  │  (FCPE)  │
         └────┬─────┘  └────┬─────┘
              ▼              ▼
         ┌──────────────────────────┐
-        │     RVC Synthesizer      │
-        │  (Generative Model)      │
+        │     RVC synthesizer      │
         └──────┬───────────────────┘
                ▼
         ┌──────────────────────────┐
-        │  Phase Vocoder Pitch     │
-        │  Correction (Live only)  │
+        │  Phase-vocoder retune    │
+        │  (live mode only)        │
         └──────────────────────────┘
 ```
 
-### AI Live Singing Module
+### Live singing module
 
-The live singing module is a real-time pitch correction system:
+1. **F0 detection** — FCPE (ONNX) for low-latency pitch tracking, with RMVPE as fallback
+2. **Singing gate** — only sustained, stable F0 frames switch into "singing" state
+3. **Target pitch lookup** — a pre-extracted F0 curve aligned to the accompaniment timeline
+4. **Retune smoothing** — smoothing keeps vibrato from being flattened
+5. **Phase vocoder** — FFT 2048 / hop 512 at 48 kHz (≈10.7 ms frame latency), instantaneous-frequency interpolation and WOLA synthesis
 
-1. **F0 Detection** — FCPE (0.1ms) or RMVPE (3ms) fallback for real-time pitch extraction
-2. **Singing Detection** — 3 consecutive stable F0 frames (60ms) triggers singing mode
-3. **F0 Profile Lookup** — Pre-extracted target pitch curve matched to accompaniment timeline
-4. **Retune Smoothing** — 1st-order low-pass filter (coefficient 0.15) for natural vibrato preservation
-5. **Phase Vocoder** — FFT 2048 → instantaneous frequency interpolation → WOLA synthesis
+Lyrics sync reads LRC files and pushes `live-lyrics` events to the always-on-top lyrics window.
 
-Lyrics synchronization uses LRC files with real-time `live-lyrics` events for desktop lyrics overlay.
+---
+
+## ⚠️ Known limitations
+
+- **Apple Silicon only** — no Windows / Linux build yet
+- The DMG is **unsigned and not notarized**, so Gatekeeper warns on first open
+- Base models are **not committed to git** (size / licensing); they download on first launch
+- Routing audio into other apps requires a virtual audio device (BlackHole 2ch on macOS)
+- First-run setup needs network access and an existing Python 3.10+ install
 
 ---
 
 ## 🗺 Roadmap
 
 - [x] Voice model training (preprocess → feature extraction → train → index)
-- [x] Vocal separation with BS-RoFormer
-- [x] Voice conversion with PyTorch MPS
-- [x] Real-time karaoke with accompaniment
-- [ ] **Pre-trained model release** (download & play instantly)
-- [ ] **Demo video & screenshots**
-- [ ] Enterprise edition (REST API, auth, multi-user)
+- [x] Vocal separation (BS-RoFormer + MDX-Net)
+- [x] Offline voice conversion (PyTorch MPS + ONNX)
+- [x] Real-time singing with accompaniment
+- [x] Desktop lyrics overlay
+- [ ] Bundle a Python runtime so users don't need to install Python
+- [ ] Pre-trained model showcase (download & sing)
+- [ ] Demo video & screenshots
 - [ ] Windows / Linux support
 
 ---
 
-## 🤝 Join the Community
+## 🤝 Contributing
 
-Voxril is just getting started. Here's how you can help:
+- ⭐ Star the repo if it helps you
+- 🐛 Open issues for bugs and feature requests
+- 🔧 Pull requests are welcome — build instructions are above
+- 📢 Share it with people who want a local, free alternative to cloud voice tools
 
-- ⭐ **Star this repo** — it helps others discover Voxril
-- 🐛 **Open issues** — bug reports, feature requests
-- 🔧 **Submit PRs** — code contributions welcome
-- 📢 **Share it** — Twitter, Reddit, Hacker News, Product Hunt
+---
+
+## 🙏 Acknowledgements
+
+- **RVC — Retrieval-based Voice Conversion WebUI** (MIT): `infer/lib/infer_pack`, UVR5 separation code
+- **UVR / BS-RoFormer** model repositories
+- **HuBERT / ContentVec**, **RMVPE**, **FCPE** model authors
+
+Upstream license notices are collected in [`MIT协议暨相关引用库协议`](MIT协议暨相关引用库协议).
 
 ---
 
 ## 📄 License
 
-**AGPL-3.0** — Free for personal use.
-Commercial licenses available for enterprise deployment.
+**AGPL-3.0** — see [LICENSE](LICENSE). RVC-derived parts keep their original MIT terms.
 
 ---
 

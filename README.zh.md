@@ -12,7 +12,7 @@
 
 **开源的 macOS AI 变声器 —— 训练专属音色模型、离线人声转换、实时 AI 翻唱，全程本地运行。**
 
-> AI 变声 · 声音克隆 · 实时翻唱 · 人声分离 · 兼容 RVC 模型 · Apple Silicon 优化。不上云、不花 API 费用、无需订阅 —— ElevenLabs 的开源替代方案。
+> AI 变声 · 声音克隆 · 实时翻唱 · 人声分离 · 兼容 RVC v2 模型 · Apple Silicon 优化。不上云、不花 API 费用、无需订阅 —— ElevenLabs 的开源替代方案。
 
 <p>
   <a href="https://github.com/Harrison-Yuan/Voxril/releases">
@@ -28,14 +28,12 @@
 
 <p>
   <img src="https://img.shields.io/badge/Rust-000?logo=rust&logoColor=fff&style=flat-square" alt="Rust">
-  <img src="https://img.shields.io/badge/Tauri-000?logo=tauri&logoColor=ffc131&style=flat-square" alt="Tauri">
+  <img src="https://img.shields.io/badge/Tauri_2-000?logo=tauri&logoColor=ffc131&style=flat-square" alt="Tauri 2">
   <img src="https://img.shields.io/badge/PyTorch_MPS-000?logo=pytorch&logoColor=ee4c2c&style=flat-square" alt="PyTorch MPS">
-  <img src="https://img.shields.io/badge/React-000?logo=react&logoColor=61dafb&style=flat-square" alt="React">
-  <img src="https://img.shields.io/badge/macOS_14+-000?logo=apple&logoColor=fff&style=flat-square" alt="macOS">
+  <img src="https://img.shields.io/badge/React_19-000?logo=react&logoColor=61dafb&style=flat-square" alt="React 19">
+  <img src="https://img.shields.io/badge/macOS_14+-000?logo=apple&logoColor=fff&style=flat-square" alt="macOS 14+">
   <img src="https://img.shields.io/badge/Apple_Silicon_M1–M4-000?logo=apple&logoColor=fff&style=flat-square" alt="Apple Silicon">
 </p>
-
-<!-- 演示 GIF：15 秒录屏 → 打开 APP → 选择模型 → 唱歌 → 实时变声 -->
 
 </div>
 
@@ -43,194 +41,238 @@
 
 ## 💡 为什么选择 Voxril？
 
-| 每个月给 ElevenLabs 交 $99？ | Voxril 完全免费、开源，运行在你的 Mac 上 |
+| 常见痛点 | Voxril |
 |---|---|
-| 受够了 RVC-WebUI 的 Gradio 界面？ | Voxril 是 **原生桌面应用** — Tauri + Rust，精致体验 |
-| 担心语音数据隐私？ | **你的声音数据永远不会离开你的电脑** |
-| 想要实时变声？ | 在 Apple Silicon 上 **延迟低于 100ms**，实时翻唱 |
-| 只有 10 分钟录音？ | **10 分钟样本就能训练可用模型** |
+| 云端变声服务按月收费 | 完全免费开源，整条链路跑在本地 Mac 上 |
+| RVC-WebUI 只能在浏览器里开 Gradio 页面 | 原生桌面应用 —— Tauri 2 + Rust + React 19 |
+| 声音要上传到别人的服务器 | 音频不出本机，推理全部在本地完成（PyTorch MPS / ONNX Runtime） |
+| 想用别人的声音实时唱歌 | 直播模式：麦克风 → RVC → 伴奏，叠加 LRC 桌面歌词 |
+| 没有现成数据集 | 内置 RVC v2 流程，几分钟干净人声就能训练一个音色 |
 
 ---
 
 ## ✨ 功能
 
-| 🎤 **训练模型** | 🎵 **人声分离** | 🔄 **语音转换** | 🎙️ **实时翻唱** |
+| 🎤 训练 | 🎵 分离 | 🔄 转换 | 🎙️ 实时翻唱 |
 |---|---|---|---|
-| 用你的音频样本训练声音模型 | BS-RoFormer 引擎分离人声 | 将任意音频转换为目标音色 | 实时 AI 变声 + 伴奏播放 |
+| 预处理 → F0 / 特征提取 → 训练 → FAISS 索引 | BS-RoFormer + 4 个 MDX-Net 模型 | 用训练好的模型 + 检索索引做离线转换 | 麦克风输入实时变声，叠加伴奏播放 |
 
-- **原生 macOS 应用** — 不是网页套壳，不是 Gradio UI
-- **Apple Silicon 原生加速** — M1–M4 PyTorch MPS 优化
-- **一键安装** — 下载 DMG → 首次启动自动配置完成
-- **完整管线** — 分离 → 训练 → 转换 → 翻唱，一个应用全搞定
+- **原生 macOS 应用** —— Tauri 2 外壳、Rust 音频引擎、React 前端
+- **本地推理** —— RVC 走 PyTorch MPS，HuBERT / RMVPE / FCPE 走 ONNX Runtime
+- **首次启动自动配置** —— 自动创建 Python 虚拟环境并下载约 1 GB 基础模型
+- **桌面歌词窗口** —— 置顶透明悬浮窗，由 LRC 与实时事件驱动
+- **工作区与历史** —— SQLite 保存实验与记录，工作区目录可切换
+- **端到端闭环** —— 人声分离 → 训练 → 转换 → 实时翻唱，一个应用内完成
 
 ---
 
-## 🚀 快速开始
+## � 运行要求
 
-```bash
-# 1. 从 Releases 下载 .dmg → 拖入 Applications 文件夹 → 打开
+| 项目 | 说明 |
+|---|---|
+| 系统 | macOS 14 (Sonoma) 及以上 |
+| 芯片 | Apple Silicon（M1–M4）。**不支持 Intel Mac** —— 随包 ffmpeg 为 arm64，且 MPS 依赖 Apple Silicon |
+| Python | 系统内需自行安装 3.10+（推荐 Homebrew）。应用**不内置** Python 运行时 |
+| 磁盘 | 约 6 GB 可用空间（Python 虚拟环境约 4 GB + 基础模型约 1 GB） |
+| 网络 | 首次启动需要联网（PyPI、HuggingFace、UVR 模型仓库） |
+| 可选 | [BlackHole 2ch](https://existential.audio/blackhole/)，用于把输出路由到 DAW / 直播软件 |
 
-# 2. 首次启动自动完成：
-#    - Python 虚拟环境 + 依赖 (~3 分钟)
-#    - AI 模型下载：HuBERT, RMVPE, BS-RoFormer (~5 分钟)
+---
 
-# 3. 大功告成。开始训练或转换。
-```
+## 🚀 安装
 
-**系统要求：** macOS 14.0+ · Apple Silicon (M1/M2/M3/M4) · Python 3.9+ · 5GB 磁盘空间
+1. 到 [Releases](https://github.com/Harrison-Yuan/Voxril/releases) 下载最新 `.dmg`，把 Voxril 拖入「应用程序」。
+2. 安装包**未做 Apple 公证**。如果被系统拦截，执行：
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Voxril.app
+   ```
+3. 首次启动会自动完成配置：
+   - 创建 `~/Library/Application Support/com.rvc.webui/venv` 并安装 `requirements.lock`
+   - 下载 `vec-768-layer-12`（HuBERT）、RMVPE、FCPE、RVC v2 预训练底模 `f0G40k` / `f0D40k`、BS-RoFormer 与 MDX-Net 系列模型
+   - 进度实时显示在应用内，无需命令行操作
+4. 选择工作区目录，然后按 **模型 → 训练 → 转换 / 直播** 的流程使用。
 
-### 开发者模式
+---
+
+## 🛠 开发
+
+前置条件：Rust 工具链、Node 20+、Python 3.10+。
 
 ```bash
 git clone https://github.com/Harrison-Yuan/Voxril.git
-cd voxril
+cd Voxril
 
-python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
-cd web && npm install && cd ..
+# Python 侧 —— `npm run build` 会用这个 .venv 跑 tools/verify_build_deps.py --quick
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 
-npm run tauri:dev    # 热重载开发模式
-npm run tauri:build  # 构建 .dmg
+# 前端依赖
+npm --prefix web ci
+
+# Tauri CLI
+npm install -g @tauri-apps/cli@^2   # 或者：cargo install tauri-cli --version "^2"
+
+npm run dev    # 等价于 cd src-tauri && cargo tauri dev
+npm run build  # 先递增补丁版本号，再打包 .dmg
 ```
+
+### 发版
+
+推一个 `v*` tag 即可。[release.yml](.github/workflows/release.yml) 会在 `macos-latest` 上构建 `aarch64-apple-darwin` 的 DMG，版本号取自 tag，跳过本地的 `beforeBuildCommand`（CI 里没有 `.venv`），并把 DMG 附加到 GitHub Release。
 
 ---
 
 ## 🧠 技术架构
 
-### 系统概览
-
 ```
-┌──────────────────────────────────────────────────────────┐
-│                     桌面框架 (Tauri 2.0)                   │
-│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐ │
-│  │  React SPA   │◀─▶  Rust 核心  │◀─▶  Python 推理引擎 │ │
-│  │  (Vite + TS) │  │  (命令层)   │  │  (PyTorch MPS)  │ │
-│  └──────────────┘  └──────────────┘  └─────────────────┘ │
-└──────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                  桌面外壳（Tauri 2）                      │
+│  ┌──────────────┐  ┌──────────────┐  ┌────────────────┐ │
+│  │  React SPA   │◀─▶  Rust 核心   │◀─▶  Python 引擎   │ │
+│  │  (Vite + TS) │  │   (Commands) │  │  (PyTorch MPS) │ │
+│  └──────────────┘  └──────────────┘  └────────────────┘ │
+└─────────────────────────────────────────────────────────┘
 ```
 
-### 前端 (`web/`)
+### 前端（`web/`）
 
-| 层 | 技术 | 用途 |
+| 层次 | 技术 | 用途 |
 |---|---|---|
-| 框架 | **React 19 + TypeScript** | UI 渲染 |
-| 构建 | **Vite 6** | 快速 HMR，优化构建 |
-| UI 库 | **Ant Design 6** | 组件系统，暗色模式 |
-| 状态管理 | **Zustand** | 轻量级全局状态 |
-| 路由 | **React Router 6** | SPA 页面路由 |
-| 国际化 | **React Context** | 中英文切换 |
+| 框架 | **React 19 + TypeScript 6** | 界面渲染 |
+| 构建 | **Vite 8** | 开发服务器与生产构建 |
+| 组件库 | **Ant Design 6** | 组件体系、暗色主题 |
+| 状态 | **Zustand 5** | 轻量全局状态 |
+| 路由 | **React Router 7** | 单页路由 |
+| 多语言 | **React Context** | 中 / 英文切换 |
 
 **页面：**
 
-| 路由 | 页面 | 描述 |
+| 路由 | 页面 | 说明 |
 |---|---|---|
-| `/live` | **AI 直播唱歌** | 实时修音（Phase Vocoder），F0 检测，歌词同步 |
-| `/train` | **训练模型** | 多步流程：预处理 → F0/音频提取 → 训练 → 建索引 |
-| `/infer` | **语音转换** | 使用训练好的模型 + FAISS 检索进行音频转换 |
-| `/uvr` | **人声分离** | 将人声从伴奏中分离 |
-| `/models` | **模型管理** | 管理基础依赖（HuBERT、RMVPE、BS-RoFormer）和训练的声音模型 |
-| `/settings` | **设置** | 语言、工作目录、外观 |
-| `/desktop-lyrics` | **桌面歌词** | 始终置顶的浮动歌词窗口 |
+| `/live` | **AI 实时翻唱** | 实时变声、音高跟踪、伴奏播放、歌词 |
+| `/train` | **模型训练** | 多步流水线：预处理 → F0 / 特征提取 → 训练 → 索引 |
+| `/infer` | **语音转换** | 用训练好的模型 + FAISS 检索做离线转换 |
+| `/uvr` | **人声分离** | 提取人声 / 伴奏 |
+| `/models` | **模型管理** | 基础模型（HuBERT、RMVPE、FCPE、BS-RoFormer、MDX）与自训练音色模型 |
+| `/settings` | **设置** | 语言、工作区路径、外观 |
+| `/desktop-lyrics` | **桌面歌词** | 置顶悬浮歌词窗口 |
 
-### Rust 后端 (`src-tauri/src/`)
+### Rust 后端（`src-tauri/src/`）
 
 | 模块 | 职责 |
 |---|---|
-| `commands/` | 各页面的 Tauri 命令处理（live, infer, train, uvr, config, audio, file, history, workspace） |
-| `audio_engine/` | 实时音频 DSP：Phase Vocoder 修音、伴奏播放、RVC 推理、LRC 解析 |
-| `python.rs` | Python 子进程管理（虚拟环境、脚本执行） |
-| `database.rs` | 训练实验的 SQLite 数据库 |
-| `state.rs` | 全局应用状态（Mutex 保护） |
-| `events.rs` | Tauri 事件发射（指标、日志、进度） |
-| `cleanup.rs` | 优雅关闭和资源清理 |
+| `commands/` | 各页面的 Tauri 命令（live、infer、train、uvr、config、audio、file、history、workspace、workflow） |
+| `audio_engine/` | 实时音频 DSP：RVC 推理、相位声码器修音、伴奏播放、混音、BlackHole 路由、自动修音、LRC 解析 |
+| `python.rs` | Python 探测、venv 管理、子进程流式执行 |
+| `database.rs` | SQLite 存储实验与历史 |
+| `state.rs` | 全局应用状态 |
+| `events.rs` | Tauri 事件推送（指标、日志、进度） |
+| `process_killer.rs` / `cleanup.rs` | 子进程跟踪与退出清理 |
 
-### Python 推理引擎 (`infer/`)
+### Python 引擎（`infer/`）
 
 | 子模块 | 技术 | 用途 |
 |---|---|---|
-| `modules/vc/` | **PyTorch MPS** | 语音转换流水线（PyTorch + ONNX 推理） |
-| `modules/train/` | **PyTorch** | 训练：预处理、F0 提取、特征提取、模型训练 |
+| `modules/vc/` | **PyTorch MPS** | 语音转换流水线（PyTorch + ONNX 两条路径） |
+| `modules/train/` | **PyTorch** | 预处理、F0 提取、特征提取、训练 |
 | `modules/uvr5/` | **MDX-Net + VR** | 人声分离推理 |
-| `lib/infer_pack/` | **RVC v2** | 核心合成器（HuBERT 编码器、生成器、F0 预测器） |
-| `lib/mlx/` | **Apple MLX** | 实验性 Apple Silicon 推理后端 |
-| `modules/realtime_worker.py` | **多进程** | 实时音频流工作进程 |
+| `lib/infer_pack/` | **RVC v2** | 合成器核心（编码器、生成器、F0 预测器） |
+| `lib/hubert_mps.py` | **ONNX / MPS** | HuBERT 特征提取 |
+| `lib/mlx/` | **Apple MLX** | 实验性推理后端 |
+| `modules/realtime_worker.py` | **多进程** | 实时音频流式处理 |
 
-### 处理流水线
+### 处理流程
 
 ```
-                      ┌──────────────────────┐
-                      │     人声分离           │
-                      │   (BS-RoFormer)       │
-                      └──────┬──────┬────────┘
+                      ┌─────────────────────┐
+                      │   人声分离           │
+                      │   (BS-RoFormer)     │
+                      └──────┬──────┬───────┘
                              │      │
                      ┌───────┘      └───────┐
                      ▼                      ▼
               ┌──────────────┐    ┌──────────────────┐
-              │    人声       │    │     伴奏          │
+              │    人声       │    │      伴奏        │
               └──────┬───────┘    └──────────────────┘
                      ▼
         ┌──────────────────────────┐
-        │  HuBERT 特征提取          │
-        │  + RMVPE 音高提取         │
+        │  HuBERT 特征              │
+        │  + RMVPE / FCPE 音高      │
         └──────┬──────────┬───────┘
                ▼          ▼
         ┌──────────┐  ┌──────────┐
-        │  FAISS   │  │  F0 曲线 │
+        │  FAISS   │  │  F0 曲线  │
         │  索引     │  │  (FCPE)  │
         └────┬─────┘  └────┬─────┘
              ▼              ▼
         ┌──────────────────────────┐
         │     RVC 合成器            │
-        │   (生成模型)             │
         └──────┬───────────────────┘
                ▼
         ┌──────────────────────────┐
-        │  Phase Vocoder 实时修音   │
-        │  (仅直播模式)           │
+        │  相位声码器修音            │
+        │  （仅实时模式）            │
         └──────────────────────────┘
 ```
 
-### AI 直播唱歌模块
+### 实时翻唱模块
 
-直播唱歌模块是一个实时音高修正系统：
+1. **F0 检测** —— FCPE（ONNX）负责低延迟基频跟踪，RMVPE 作为兜底
+2. **唱歌判定** —— 只有持续稳定的 F0 帧才切入「唱歌」状态
+3. **目标音高查表** —— 预先提取的 F0 曲线与伴奏时间轴对齐
+4. **修音平滑** —— 平滑处理避免把自然颤音抹平
+5. **相位声码器** —— 48 kHz 下 FFT 2048 / hop 512（帧延迟约 10.7 ms），瞬时频率插值 + WOLA 合成
 
-1. **F0 检测** — FCPE（0.1ms）实时提取基频，失败自动降级到 RMVPE（3ms）
-2. **唱歌检测** — 连续 3 帧（60ms）稳定 F0 自动判定为唱歌状态
-3. **谱子查表** — 按伴奏播放进度查找对应帧的目标 F0 音高
-4. **Retune 平滑** — 0.15 系数一阶低通滤波，保留自然颤音
-5. **Phase Vocoder 移调** — FFT 2048 → 瞬时频率插值 → WOLA 合成
+歌词同步读取 LRC 文件，通过 `live-lyrics` 事件推送到置顶歌词窗口。
 
-歌词同步使用 LRC 文件，通过 `live-lyrics` 事件实时推送，支持桌面歌词悬浮窗。
+---
+
+## ⚠️ 已知限制
+
+- **仅支持 Apple Silicon**，暂无 Windows / Linux 版本
+- DMG **未签名、未公证**，首次打开会被 Gatekeeper 拦截
+- 基础模型**不随仓库分发**（体积与授权原因），首次启动时下载
+- 把声音送入其他应用需要虚拟声卡（macOS 上是 BlackHole 2ch）
+- 首次配置需要联网，且系统里要已有 Python 3.10+
 
 ---
 
 ## 🗺 路线图
 
 - [x] 声音模型训练（预处理 → 特征提取 → 训练 → 索引）
-- [x] 人声分离（BS-RoFormer）
-- [x] 语音转换（PyTorch MPS）
+- [x] 人声分离（BS-RoFormer + MDX-Net）
+- [x] 离线语音转换（PyTorch MPS + ONNX）
 - [x] 实时翻唱 + 伴奏
-- [ ] **发布预训练模型**（下载即玩）
-- [ ] **演示视频 & 截图**
-- [ ] 企业版（REST API、鉴权、多用户）
+- [x] 桌面歌词悬浮窗
+- [ ] 内置 Python 运行时（用户无需自行安装 Python）
+- [ ] 预训练音色展示（下载即玩）
+- [ ] 演示视频与截图
 - [ ] Windows / Linux 支持
 
 ---
 
-## 🤝 加入社区
+## 🤝 参与贡献
 
-Voxril 刚刚起步，你的支持就是最大的动力：
+- ⭐ 觉得有用就点个 Star
+- 🐛 提 Issue 报告 Bug 或功能需求
+- 🔧 欢迎 PR —— 构建方式见上文
+- 📢 分享给需要「本地免费变声」的朋友
 
-- ⭐ **点个 Star** — 让更多人看到 Voxril
-- 🐛 **提 Issue** — 报告 Bug、提功能需求
-- 🔧 **提交 PR** — 代码贡献同样欢迎
-- 📢 **分享出去** — Twitter、Reddit、即刻、知乎
+---
+
+## 🙏 致谢
+
+- **RVC — Retrieval-based Voice Conversion WebUI**（MIT）：`infer/lib/infer_pack`、UVR5 分离代码
+- **UVR / BS-RoFormer** 模型仓库
+- **HuBERT / ContentVec**、**RMVPE**、**FCPE** 模型作者
+
+上游许可声明汇总在 [`MIT协议暨相关引用库协议`](MIT协议暨相关引用库协议)。
 
 ---
 
 ## 📄 许可证
 
-**AGPL-3.0** — 个人免费使用。
-企业部署需购买商业授权。
+**AGPL-3.0** —— 详见 [LICENSE](LICENSE)。源自 RVC 的部分仍遵循其原始 MIT 许可。
 
 ---
 
