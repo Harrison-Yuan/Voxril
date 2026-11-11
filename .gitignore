@@ -1,0 +1,94 @@
+# macOS
+__MACOSX/
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.Python
+
+# Virtual env
+.venv/
+venv/
+
+# Node / Frontend
+node_modules/
+web/node_modules/
+*.tsbuildinfo
+web/dist/
+
+# Tauri
+target/
+src-tauri/target/
+src-tauri/Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Download artifacts (temp / incomplete)
+*.tmp
+*.crdownload
+*.part
+
+# Training outputs (user's workspace, not in repo)
+experiments/
+logs/
+weights/
+/logs
+/weights
+
+# Legacy Gradio artifacts
+/TEMP
+*.pyd
+tools/aria2c/
+tools/flag.txt
+/pretrained
+/pretrained_v2
+/uvr5_weights
+
+# Large model files (included in Tauri bundle, not tracked in git)
+assets/hubert/contentvec-f.onnx
+assets/rmvpe/rmvpe.onnx
+assets/pretrained_v2/f0G40k.pth
+assets/pretrained_v2/f0D40k.pth
+assets/pretrained_v2/G40k.pth
+assets/pretrained_v2/D40k.pth
+assets/pretrained_v2/f0G32k.pth
+assets/pretrained_v2/f0D32k.pth
+assets/pretrained_v2/f0G48k.pth
+assets/pretrained_v2/f0D48k.pth
+assets/uvr_models/*.ckpt
+assets/uvr_models/*.onnx
+
+# Legacy model files (replaced by ONNX)
+hubert_base.pt
+rmvpe.pt
+hubert_inputs.pth
+rmvpe_inputs.pth
+content-vec-best.pt
+hubert_mlx.npz
+assets/hubert/contentvec/
+
+# Database (user's local)
+rvc.db
+web/rvc.db
+.workspace-config.json
+
+# FFmpeg
+ffmpeg.*
+ffprobe.*
+/runtime
+
+# Datasets
+dataset/
+
+# Misc
+/opt
+.tool-versions

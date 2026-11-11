@@ -1,0 +1,69 @@
+[package]
+name = "voicecraft"
+version = "0.1.14"
+description = "VoiceCraft - AI Voice Conversion & Training on macOS"
+authors = ["RVC Team"]
+license = "AGPL-3.0"
+repository = "https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI"
+edition = "2021"
+default-run = "voicecraft"
+
+[[bin]]
+name = "voicecraft"
+path = "src/main.rs"
+
+[[bin]]
+name = "f0-extract"
+path = "src/bin/f0_extract.rs"
+
+[[bin]]
+name = "export-stft"
+path = "src/bin/export_stft.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.0.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0.0", features = ["protocol-asset", "macos-private-api"] }
+tauri-plugin-dialog = "2.0.0"
+tauri-plugin-fs = "2.0.0"
+tauri-plugin-shell = "2.0.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.40", features = ["rt", "rt-multi-thread", "macros", "process", "fs", "io-util", "sync"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+tokio-rusqlite = "0.6"
+anyhow = "1.0"
+thiserror = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.10", features = ["v4", "serde"] }
+dirs = "5.0"
+walkdir = "2.5"
+regex = "1.10"
+cpal = "0.15"
+ringbuf = "0.3"
+hound = "3.5"
+symphonia = { version = "0.5", features = ["all"] }
+num_cpus = "1"
+ort = { version = "2.0.0-rc.12", features = ["copy-dylibs"] }
+rustfft = "6.2"
+log = "0.4"
+reqwest = { version = "0.12", features = ["json", "cookies", "rustls-tls"], default-features = false }
+env_logger = "0.11"
+bzip2 = "0.5"
+rubato = "0.15"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc = "0.2"
+libc = "0.2"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "z"
+strip = true

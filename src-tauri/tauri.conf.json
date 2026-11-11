@@ -1,0 +1,83 @@
+{
+  "$schema": "https://schema.tauri.app/config/2.0",
+  "productName": "VoiceCraft",
+  "version": "0.1.14",
+  "identifier": "com.voicecraft.app",
+  "build": {
+    "beforeDevCommand": "npm --prefix web run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "cd src-tauri && cargo run --bin bump_version && cd .. && npm --prefix web run build && python3 tools/verify_build_deps.py --quick",
+    "frontendDist": "../web/dist"
+  },
+  "bundle": {
+    "active": true,
+    "targets": "dmg",
+    "icon": [
+      "icons/icon.png"
+    ],
+    "resources": [
+      "../assets",
+      "../infer",
+      "../tools",
+      "../configs",
+      "../i18n",
+      "../requirements.txt",
+      "../requirements.lock",
+      "bin/ffmpeg"
+    ],
+    "copyright": "AGPL-3.0 License",
+    "category": "Entertainment",
+    "shortDescription": "VoiceCraft - AI Voice Conversion & Training",
+    "longDescription": "VoiceCraft is a macOS AI voice conversion desktop app powered by RVC. Train voice models, separate vocals, convert audio in real-time. Optimized for Apple Silicon.",
+    "macOS": {
+      "minimumSystemVersion": "14.0",
+      "exceptionDomain": "",
+      "frameworks": [],
+      "providerShortName": "",
+      "signingIdentity": null,
+      "infoPlist": "Info.plist"
+    }
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "VoiceCraft",
+        "width": 1400,
+        "height": 900,
+        "resizable": true,
+        "fullscreen": false,
+        "minWidth": 1200,
+        "minHeight": 700,
+        "decorations": false
+      },
+      {
+        "label": "desktop-lyrics",
+        "title": "VoiceCraft \u6b4c\u8bcd",
+        "width": 800,
+        "height": 160,
+        "minWidth": 400,
+        "minHeight": 60,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "url": "/desktop-lyrics",
+        "visible": false,
+        "backgroundColor": "#00000000"
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "**"
+        ]
+      }
+    }
+  },
+  "plugins": {}
+}

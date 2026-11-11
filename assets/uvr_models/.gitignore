@@ -1,0 +1,4 @@
+# UVR model cache
+*.ckpt
+*.yaml
+download_checks.json

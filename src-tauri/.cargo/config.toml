@@ -1,0 +1,30 @@
+[build]
+# 构建时自动去除调试符号，减少产物体积
+strip = true
+
+[profile.dev]
+# 不生成 dSYM 调试符号包（macOS 默认会生成 ~200MB+ 的 .dSYM 文件）
+split-debuginfo = "off"
+
+# 链接时剔除未使用的代码，减小 deps 体积
+codegen-units = 1
+
+# 少量优化，减少代码体积
+opt-level = 1
+
+# 仅在 dev 构建的最终产物 strip 符号（不影响编译速度）
+strip = true
+
+[profile.dev.package]
+# cpal 和 CoreAudio 绑定是 C 库，debug 编译极慢且体积巨大
+# 让它们用 release 配置编译
+cpal = { opt-level = 3, codegen-units = 1 }
+ringbuf = { opt-level = 3 }
+hound = { opt-level = 3 }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
