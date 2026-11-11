@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Cantarix 需要访问麦克风以进行实时 AI 变声</string>
+    <string>Voxril 需要访问麦克风以进行实时 AI 变声</string>
 </dict>
 </plist>

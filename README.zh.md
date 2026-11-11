@@ -8,20 +8,20 @@
 
 <div align="center">
 
-# 🎙️ Cantarix
+# 🎙️ Voxril
 
 **开源的 macOS AI 变声器 —— 训练专属音色模型、离线人声转换、实时 AI 翻唱，全程本地运行。**
 
 > AI 变声 · 声音克隆 · 实时翻唱 · 人声分离 · 兼容 RVC 模型 · Apple Silicon 优化。不上云、不花 API 费用、无需订阅 —— ElevenLabs 的开源替代方案。
 
 <p>
-  <a href="https://github.com/Harrison-Yuan/Cantarix/releases">
+  <a href="https://github.com/Harrison-Yuan/Voxril/releases">
     <img src="https://img.shields.io/badge/📥_下载_for_macOS-8A2BE2?style=for-the-badge&logo=apple&logoColor=white" alt="下载">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/许可证-AGPL--3.0-ef4444?style=for-the-badge" alt="License">
   </a>
-  <a href="https://github.com/Harrison-Yuan/Cantarix">
+  <a href="https://github.com/Harrison-Yuan/Voxril">
     <img src="https://img.shields.io/badge/⭐_点个_Star-ffd700?style=for-the-badge" alt="Star">
   </a>
 </p>
@@ -41,11 +41,11 @@
 
 ---
 
-## 💡 为什么选择 Cantarix？
+## 💡 为什么选择 Voxril？
 
-| 每个月给 ElevenLabs 交 $99？ | Cantarix 完全免费、开源，运行在你的 Mac 上 |
+| 每个月给 ElevenLabs 交 $99？ | Voxril 完全免费、开源，运行在你的 Mac 上 |
 |---|---|
-| 受够了 RVC-WebUI 的 Gradio 界面？ | Cantarix 是 **原生桌面应用** — Tauri + Rust，精致体验 |
+| 受够了 RVC-WebUI 的 Gradio 界面？ | Voxril 是 **原生桌面应用** — Tauri + Rust，精致体验 |
 | 担心语音数据隐私？ | **你的声音数据永远不会离开你的电脑** |
 | 想要实时变声？ | 在 Apple Silicon 上 **延迟低于 100ms**，实时翻唱 |
 | 只有 10 分钟录音？ | **10 分钟样本就能训练可用模型** |
@@ -82,8 +82,8 @@
 ### 开发者模式
 
 ```bash
-git clone https://github.com/Harrison-Yuan/Cantarix.git
-cd cantarix
+git clone https://github.com/Harrison-Yuan/Voxril.git
+cd voxril
 
 python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
 cd web && npm install && cd ..
@@ -218,9 +218,9 @@ npm run tauri:build  # 构建 .dmg
 
 ## 🤝 加入社区
 
-Cantarix 刚刚起步，你的支持就是最大的动力：
+Voxril 刚刚起步，你的支持就是最大的动力：
 
-- ⭐ **点个 Star** — 让更多人看到 Cantarix
+- ⭐ **点个 Star** — 让更多人看到 Voxril
 - 🐛 **提 Issue** — 报告 Bug、提功能需求
 - 🔧 **提交 PR** — 代码贡献同样欢迎
 - 📢 **分享出去** — Twitter、Reddit、即刻、知乎
@@ -238,8 +238,8 @@ Cantarix 刚刚起步，你的支持就是最大的动力：
 
 **为开源 AI 社区而建 ❤️**
 
-[![Star History](https://api.star-history.com/svg?repos=Harrison-Yuan/Cantarix&type=Date)](https://star-history.com/#Harrison-Yuan/Cantarix&Date)
+[![Star History](https://api.star-history.com/svg?repos=Harrison-Yuan/Voxril&type=Date)](https://star-history.com/#Harrison-Yuan/Voxril&Date)
 
-### ⭐ 如果 Cantarix 对你有帮助，点个 Star。让更多需要它的人找到它。
+### ⭐ 如果 Voxril 对你有帮助，点个 Star。让更多需要它的人找到它。
 
 </div>

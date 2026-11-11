@@ -8,20 +8,20 @@
 
 <div align="center">
 
-# 🎙️ Cantarix
+# 🎙️ Voxril
 
 **Open-source AI voice changer for macOS — train your own voice model, convert vocals offline, and sing in real time with 100% local AI.**
 
 > AI voice conversion · voice cloning · real-time karaoke · vocal separation · RVC-compatible models · Apple Silicon. No cloud, no API keys, no subscriptions — the open-source alternative to ElevenLabs.
 
 <p>
-  <a href="https://github.com/Harrison-Yuan/Cantarix/releases">
+  <a href="https://github.com/Harrison-Yuan/Voxril/releases">
     <img src="https://img.shields.io/badge/📥_Download_for_macOS-8A2BE2?style=for-the-badge&logo=apple&logoColor=white" alt="Download">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/License-AGPL--3.0-ef4444?style=for-the-badge" alt="License">
   </a>
-  <a href="https://github.com/Harrison-Yuan/Cantarix">
+  <a href="https://github.com/Harrison-Yuan/Voxril">
     <img src="https://img.shields.io/badge/⭐_Star_us-ffd700?style=for-the-badge" alt="Stars">
   </a>
 </p>
@@ -43,11 +43,11 @@ https://github.com/user-attachments/assets/00000000-0000-0000-0000-000000000000
 
 ---
 
-## 💡 Why Cantarix?
+## 💡 Why Voxril?
 
-| Stop paying ElevenLabs $99/mo | Cantarix is 100% free, open-source, and runs entirely on your Mac |
+| Stop paying ElevenLabs $99/mo | Voxril is 100% free, open-source, and runs entirely on your Mac |
 |---|---|
-| Tired of RVC-WebUI's buggy Gradio UI | Cantarix is a **native desktop app** — Tauri + Rust, polished UX |
+| Tired of RVC-WebUI's buggy Gradio UI | Voxril is a **native desktop app** — Tauri + Rust, polished UX |
 | Worried about privacy? | Your voice data **never leaves your machine** |
 | Want real-time voice changing? | **Sub-100ms latency** on Apple Silicon — sing in real time with AI voice |
 | Only have 10 minutes of audio? | Train a usable voice model from **just 10 minutes of samples** |
@@ -84,8 +84,8 @@ https://github.com/user-attachments/assets/00000000-0000-0000-0000-000000000000
 ### Development
 
 ```bash
-git clone https://github.com/Harrison-Yuan/Cantarix.git
-cd cantarix
+git clone https://github.com/Harrison-Yuan/Voxril.git
+cd voxril
 
 python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
 cd web && npm install && cd ..
@@ -220,9 +220,9 @@ Lyrics synchronization uses LRC files with real-time `live-lyrics` events for de
 
 ## 🤝 Join the Community
 
-Cantarix is just getting started. Here's how you can help:
+Voxril is just getting started. Here's how you can help:
 
-- ⭐ **Star this repo** — it helps others discover Cantarix
+- ⭐ **Star this repo** — it helps others discover Voxril
 - 🐛 **Open issues** — bug reports, feature requests
 - 🔧 **Submit PRs** — code contributions welcome
 - 📢 **Share it** — Twitter, Reddit, Hacker News, Product Hunt
@@ -240,8 +240,8 @@ Commercial licenses available for enterprise deployment.
 
 **Built with ❤️ for the open-source AI community**
 
-[![Star History](https://api.star-history.com/svg?repos=Harrison-Yuan/Cantarix&type=Date)](https://star-history.com/#Harrison-Yuan/Cantarix&Date)
+[![Star History](https://api.star-history.com/svg?repos=Harrison-Yuan/Voxril&type=Date)](https://star-history.com/#Harrison-Yuan/Voxril&Date)
 
-### ⭐ If Cantarix is useful to you, star the repo. It helps more people find it.
+### ⭐ If Voxril is useful to you, star the repo. It helps more people find it.
 
 </div>

@@ -1,15 +1,15 @@
 [package]
-name = "cantarix"
+name = "voxril"
 version = "0.1.14"
-description = "Cantarix - AI Voice Conversion & Training on macOS"
+description = "Voxril - AI Voice Conversion & Training on macOS"
 authors = ["RVC Team"]
 license = "AGPL-3.0"
 repository = "https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI"
 edition = "2021"
-default-run = "cantarix"
+default-run = "voxril"
 
 [[bin]]
-name = "cantarix"
+name = "voxril"
 path = "src/main.rs"
 
 [[bin]]

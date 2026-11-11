@@ -9,7 +9,7 @@ export type Lang = 'zh' | 'en'
 const messages: Record<Lang, Messages> = { zh, en }
 
 function detectLang(): Lang {
-  const saved = localStorage.getItem('cantarix-lang') as Lang | null
+  const saved = localStorage.getItem('voxril-lang') as Lang | null
   if (saved === 'zh' || saved === 'en') return saved
   return navigator.language.startsWith('zh') ? 'zh' : 'en'
 }
@@ -27,7 +27,7 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
 
   const setLang = useCallback((newLang: Lang) => {
     setLangState(newLang)
-    localStorage.setItem('cantarix-lang', newLang)
+    localStorage.setItem('voxril-lang', newLang)
   }, [])
 
   const t = useCallback((key: string, fallback?: string): string => {

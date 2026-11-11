@@ -289,7 +289,7 @@ pub fn start_live_engine(
         emit_log(
             &app_handle,
             &format!(
-                "[路由] ✅ BlackHole 输出桥接：输入「{}」→ Cantarix → 输出「{}」",
+                "[路由] ✅ BlackHole 输出桥接：输入「{}」→ Voxril → 输出「{}」",
                 config.input_device, bh_name
             ),
         );

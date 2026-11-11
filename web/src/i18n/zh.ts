@@ -1,6 +1,6 @@
 const zh = {
   // ── App ──
-  'app.name': 'Cantarix',
+  'app.name': 'Voxril',
 
   // ── Navigation ──
   'nav.train': '训练模型',

@@ -41,7 +41,7 @@ def load_audio(file, sr):
     if not os.path.exists(file):
         raise RuntimeError(f"音频文件不存在: {file}")
 
-    bin_path = os.environ.get("CANTARIX_BIN", "cantarix")
+    bin_path = os.environ.get("VOXRIL_BIN", "voxril")
     try:
         result = subprocess.run(
             [bin_path, "decode-audio", "--input", file, "--sr", str(sr)],
@@ -58,7 +58,7 @@ def load_audio(file, sr):
         return audio
     except FileNotFoundError:
         raise RuntimeError(
-            f"找不到 cantarix 可执行文件: {bin_path}"
+            f"找不到 voxril 可执行文件: {bin_path}"
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError("音频解码超时 (30s)")

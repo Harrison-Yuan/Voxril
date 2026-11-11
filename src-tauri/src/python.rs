@@ -38,9 +38,9 @@ fn build_path_with_ffmpeg(project_root: &Path) -> String {
 
 /// 返回当前可执行文件的路径。
 /// 用于 Python 子进程调用本程序的子命令（如 decode-audio）。
-fn cantarix_bin() -> String {
+fn voxril_bin() -> String {
     std::env::current_exe()
-        .unwrap_or_else(|_| PathBuf::from("cantarix"))
+        .unwrap_or_else(|_| PathBuf::from("voxril"))
         .to_string_lossy()
         .to_string()
 }
@@ -195,7 +195,7 @@ impl PythonExecutor {
             .env("RVC_DATA_DIR", &data_dir_str)
             .env("RVC_CONFIG_DIR", &configs_dir)
             .env("HUBERT_MODEL_PATH", &hubert_model_path)
-            .env("CANTARIX_BIN", cantarix_bin())
+            .env("VOXRIL_BIN", voxril_bin())
             .env("PATH", build_path_with_ffmpeg(&self.project_root));
         cmd
     }
@@ -221,7 +221,7 @@ impl PythonExecutor {
             .env("RVC_DATA_DIR", &data_dir_str)
             .env("RVC_CONFIG_DIR", &configs_dir)
             .env("HUBERT_MODEL_PATH", &hubert_model_path)
-            .env("CANTARIX_BIN", cantarix_bin())
+            .env("VOXRIL_BIN", voxril_bin())
             .env("PATH", build_path_with_ffmpeg(&self.project_root));
         cmd
     }
@@ -303,7 +303,7 @@ impl PythonExecutor {
             .env("HUBERT_MODEL_PATH", &hubert_model_path)
             .env("rmvpe_root", &rmvpe_root)
             .env("RVC_CONFIG_DIR", &format!("{}/configs", data_dir_str))
-            .env("CANTARIX_BIN", cantarix_bin())
+            .env("VOXRIL_BIN", voxril_bin())
             .env("PATH", build_path_with_ffmpeg(&self.project_root))
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

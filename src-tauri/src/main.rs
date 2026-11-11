@@ -34,7 +34,7 @@ impl Drop for AppLock {
 
 #[tokio::main]
 async fn main() {
-    // ⚠️ 子命令路由：`cantarix decode-audio --input ... --sr ...`
+    // ⚠️ 子命令路由：`voxril decode-audio --input ... --sr ...`
     //     用 Rust symphonia 解码音频，输出 raw f32 PCM 到 stdout。
     //     替换 Python ffmpeg/PyAV 子进程，消除系统依赖。
     let args: Vec<String> = std::env::args().collect();
@@ -48,9 +48,9 @@ async fn main() {
     // ═══════════════════════════════════════════════
     let lock_dir = dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("com.cantarix.app");
+        .join("com.voxril.app");
     let _ = std::fs::create_dir_all(&lock_dir);
-    let lock_path = lock_dir.join("cantarix.lock");
+    let lock_path = lock_dir.join("voxril.lock");
     // 检查锁文件：如果存在但对应进程已死，自动清理
     if lock_path.exists() {
         let stale = if let Ok(content) = std::fs::read_to_string(&lock_path) {
@@ -72,7 +72,7 @@ async fn main() {
             Some(AppLock { path: lock_path })
         }
         Err(_) => {
-            eprintln!("Cantarix 已在运行中");
+            eprintln!("Voxril 已在运行中");
             std::process::exit(0);
         }
     };

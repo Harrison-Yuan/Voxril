@@ -1,5 +1,5 @@
 const en = {
-  'app.name': 'Cantarix',
+  'app.name': 'Voxril',
 
   'nav.train': 'Training',
   'nav.uvr': 'Vocal Separation',

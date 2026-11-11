@@ -1,6 +1,6 @@
 //! macOS Dock 菜单 + 菜单栏
 //!
-//! - 屏幕顶部菜单栏: Cantarix > 导航 > 窗口
+//! - 屏幕顶部菜单栏: Voxril > 导航 > 窗口
 //! - 程序坞图标: 右键/长按弹出快捷菜单（含最近项目和快捷操作）
 //! - 点击 Dock 图标: 聚焦时通知前端
 
@@ -12,11 +12,11 @@ pub fn setup_dock(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle().clone();
 
     // ── 屏幕顶部菜单栏 ──
-    let file_sub = Submenu::with_items(app, "Cantarix", true, &[
+    let file_sub = Submenu::with_items(app, "Voxril", true, &[
         &MenuItem::with_id(app, "open_project", "打开项目...", true, None::<&str>)?,
         &MenuItem::with_id(app, "new_project", "新建项目", true, None::<&str>)?,
         &PredefinedMenuItem::separator(app)?,
-        &PredefinedMenuItem::quit(app, Some("退出 Cantarix"))?,
+        &PredefinedMenuItem::quit(app, Some("退出 Voxril"))?,
     ])?;
 
     let nav_sub = Submenu::with_items(app, "导航", true, &[

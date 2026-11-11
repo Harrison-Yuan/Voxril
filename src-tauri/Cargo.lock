@@ -388,43 +388,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cantarix"
-version = "0.1.14"
-dependencies = [
- "anyhow",
- "bzip2",
- "chrono",
- "cpal",
- "dirs 5.0.1",
- "env_logger",
- "hound",
- "libc",
- "log",
- "num_cpus",
- "objc",
- "ort",
- "regex",
- "reqwest 0.12.28",
- "ringbuf",
- "rubato",
- "rusqlite",
- "rustfft",
- "serde",
- "serde_json",
- "symphonia",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-fs",
- "tauri-plugin-shell",
- "thiserror 1.0.69",
- "tokio",
- "tokio-rusqlite",
- "uuid",
- "walkdir",
-]
-
-[[package]]
 name = "cargo-platform"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5432,6 +5395,43 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "voxril"
+version = "0.1.14"
+dependencies = [
+ "anyhow",
+ "bzip2",
+ "chrono",
+ "cpal",
+ "dirs 5.0.1",
+ "env_logger",
+ "hound",
+ "libc",
+ "log",
+ "num_cpus",
+ "objc",
+ "ort",
+ "regex",
+ "reqwest 0.12.28",
+ "ringbuf",
+ "rubato",
+ "rusqlite",
+ "rustfft",
+ "serde",
+ "serde_json",
+ "symphonia",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+ "tauri-plugin-shell",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-rusqlite",
+ "uuid",
+ "walkdir",
+]
 
 [[package]]
 name = "vswhom"

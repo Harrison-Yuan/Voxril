@@ -1,6 +1,6 @@
 //! 音频解码子命令 — 用伴生 ffmpeg 解码任意音频格式，输出 raw f32 PCM
 //!
-//! 用法: `cantarix decode-audio --input /path/to/audio.wav --sr 16000`
+//! 用法: `voxril decode-audio --input /path/to/audio.wav --sr 16000`
 //!
 //! 输出: stdout 写入 f32 LE PCM（单声道，目标采样率）
 //! 返回值: 0=成功, 1=错误
@@ -12,7 +12,7 @@ use std::process::{Command, Stdio};
 pub fn run(args: &[String]) {
     let input = match args.iter().position(|a| a == "--input").and_then(|i| args.get(i + 1)) {
         Some(v) => v.clone(),
-        None => { eprintln!("用法: cantarix decode-audio --input <path> --sr <hz>"); std::process::exit(1); }
+        None => { eprintln!("用法: voxril decode-audio --input <path> --sr <hz>"); std::process::exit(1); }
     };
     let target_sr: u32 = match args.iter().position(|a| a == "--sr").and_then(|i| args.get(i + 1)) {
         Some(v) => v.parse().unwrap_or(16000),
