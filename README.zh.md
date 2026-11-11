@@ -15,13 +15,13 @@
 > **ElevenLabs 的开源替代品 — 不上云，不花 API 费用，无隐私担忧。**
 
 <p>
-  <a href="https://github.com/Harrison-Yuan/voice-training/releases">
+  <a href="https://github.com/Harrison-Yuan/VoiceCraft/releases">
     <img src="https://img.shields.io/badge/📥_下载_for_macOS-8A2BE2?style=for-the-badge&logo=apple&logoColor=white" alt="下载">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/许可证-AGPL--3.0-ef4444?style=for-the-badge" alt="License">
   </a>
-  <a href="https://github.com/Harrison-Yuan/voice-training">
+  <a href="https://github.com/Harrison-Yuan/VoiceCraft">
     <img src="https://img.shields.io/badge/⭐_点个_Star-ffd700?style=for-the-badge" alt="Star">
   </a>
 </p>
@@ -82,7 +82,7 @@
 ### 开发者模式
 
 ```bash
-git clone https://github.com/Harrison-Yuan/voice-training.git
+git clone https://github.com/Harrison-Yuan/VoiceCraft.git
 cd voicecraft
 
 python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
@@ -238,7 +238,7 @@ VoiceCraft 刚刚起步，你的支持就是最大的动力：
 
 **为开源 AI 社区而建 ❤️**
 
-[![Star History](https://api.star-history.com/svg?repos=Harrison-Yuan/voice-training&type=Date)](https://star-history.com/#Harrison-Yuan/voice-training&Date)
+[![Star History](https://api.star-history.com/svg?repos=Harrison-Yuan/VoiceCraft&type=Date)](https://star-history.com/#Harrison-Yuan/VoiceCraft&Date)
 
 ### ⭐ 如果 VoiceCraft 对你有帮助，点个 Star。让更多需要它的人找到它。
 
