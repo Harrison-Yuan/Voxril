@@ -49,25 +49,26 @@ pub fn run(args: &[String]) {
 }
 
 fn find_ffmpeg_bin() -> PathBuf {
+    let ffmpeg_name = crate::platform::ffmpeg_filename();
     // 优先级 1：伴生路径（DMG 模式）
     if let Ok(exe) = std::env::current_exe() {
         // Tauri v2: Resources/bin/ffmpeg（直接资源）
         let r1 = exe.parent()
             .and_then(|p| p.parent())
-            .map(|p| p.join("Resources").join("bin").join("ffmpeg"));
+            .map(|p| p.join("Resources").join("bin").join(ffmpeg_name));
         if let Some(ref p) = r1 { if p.exists() { return p.clone(); } }
         // Tauri v2: Resources/_up_/bin/ffmpeg（上级资源）
         let r2 = exe.parent()
             .and_then(|p| p.parent())
-            .map(|p| p.join("Resources").join("_up_").join("bin").join("ffmpeg"));
+            .map(|p| p.join("Resources").join("_up_").join("bin").join(ffmpeg_name));
         if let Some(ref p) = r2 { if p.exists() { return p.clone(); } }
         // 同目录 sidecar
-        let r3 = exe.parent().map(|p| p.join("bin").join("ffmpeg"));
+        let r3 = exe.parent().map(|p| p.join("bin").join(ffmpeg_name));
         if let Some(ref p) = r3 { if p.exists() { return p.clone(); } }
     }
     // 优先级 2：开发模式
-    let dev = PathBuf::from("bin/ffmpeg");
+    let dev = PathBuf::from("bin").join(ffmpeg_name);
     if dev.exists() { return dev; }
     // 优先级 3：系统 PATH
-    PathBuf::from("ffmpeg")
+    PathBuf::from(ffmpeg_name)
 }

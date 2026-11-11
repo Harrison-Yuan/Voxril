@@ -138,12 +138,13 @@ impl AppState {
         let db = Database::new(&workspace_root.join("rvc.db")).await?;
 
         // Find python
-        let python_cmd = if project_root.join(".venv/bin/python").exists() {
-            project_root.join(".venv/bin/python")
-        } else if project_root.join("venv/bin/python").exists() {
-            project_root.join("venv/bin/python")
+        let venv_python = crate::platform::venv_python_rel();
+        let python_cmd = if project_root.join(".venv").join(venv_python).exists() {
+            project_root.join(".venv").join(venv_python)
+        } else if project_root.join("venv").join(venv_python).exists() {
+            project_root.join("venv").join(venv_python)
         } else {
-            PathBuf::from("python3")
+            PathBuf::from(crate::platform::default_python_cmd())
         };
 
         let data_dir = dirs::data_dir()

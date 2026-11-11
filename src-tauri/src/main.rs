@@ -5,9 +5,11 @@ mod cleanup;
 mod commands;
 mod database;
 mod decode_audio;
+#[cfg(target_os = "macos")]
 mod dock_menu;
 mod events;
 mod os_integration;
+mod platform;
 mod process_killer;
 mod python;
 mod state;
@@ -88,7 +90,8 @@ async fn main() {
         .plugin(tauri_plugin_shell::init())
         .manage(app_state)
         .setup(move |app| {
-            // macOS Dock 菜单 + 菜单栏
+            // macOS Dock 菜单 + 菜单栏（其他平台使用系统默认菜单）
+            #[cfg(target_os = "macos")]
             if let Err(e) = dock_menu::setup_dock(app) {
                 eprintln!("[Dock] 初始化失败: {}", e);
             }

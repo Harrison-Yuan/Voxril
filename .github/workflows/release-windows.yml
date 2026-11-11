@@ -1,0 +1,60 @@
+name: Release Windows (experimental)
+
+# ⚠️ 预留工作流：Windows 适配尚未完成，手动触发、失败不影响 macOS 正式发版。
+# 待完成项：
+#   1. Python venv 路径（Scripts/python.exe）与 Windows 下的 Python 探测
+#   2. bin/windows-x64/ffmpeg.exe 入库
+#   3. 虚拟声卡路由（VB-Cable / WASAPI loopback）替代 BlackHole
+#   4. WebView2 / NSIS 打包与图标（.ico）
+#   5. tools/auto_setup_venv.py 的平台分支
+on:
+  workflow_dispatch:
+
+jobs:
+  build-nsis:
+    name: Build Windows NSIS installer (experimental)
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: windows-x64
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Build frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm -C web run build
+
+      - name: Build NSIS
+        working-directory: src-tauri
+        run: |
+          tauri build --target x86_64-pc-windows-msvc --bundles nsis --config "{\"build\":{\"beforeBuildCommand\":\"\"}}"
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: voxril-windows-experimental
+          path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          if-no-files-found: warn

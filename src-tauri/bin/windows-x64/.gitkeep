@@ -1,0 +1,4 @@
+该目录为 Windows x64 版本预留：放置 ffmpeg.exe 到这里。
+
+当前待适配项：Python venv 路径（Scripts/python.exe）、虚拟声卡路由（VB-Cable）、
+NSIS 打包配置（tauri.windows.conf.json）。

@@ -1,9 +1,13 @@
-//! BlackHole 虚拟音频设备检测与路由决策
+//! 虚拟声卡检测与路由决策
 //!
-//! BlackHole 是 macOS 上的虚拟音频桥接设备，让不同音频应用共享音频数据。
+//! macOS 使用 BlackHole 虚拟音频桥接设备，让不同音频应用共享音频数据。
 //! 本模块固定使用 2ch 模式（行业标准实践），输入输出均使用 ch1-2。
 //! 如需多通道路由（如 DAW Send/Return），用户应在 DAW 端自行配置。
+//!
+//! 平台扩展：Windows 侧可对应 VB-Audio Virtual Cable / WASAPI loopback，
+//! 目前非 macOS 平台统一返回直通模式。
 
+#[cfg(target_os = "macos")]
 use cpal::traits::{DeviceTrait, HostTrait};
 
 /// BlackHole 路由决策结果
@@ -30,6 +34,7 @@ impl BlackholeRoute {
 /// 1. 无 BlackHole → 直通模式
 /// 2. 有 BlackHole + 无 DAW → 直通模式
 /// 3. 有 BlackHole + 有 DAW → BlackHole 2ch 桥接模式
+#[cfg(target_os = "macos")]
 pub fn detect_route(host: &cpal::Host) -> BlackholeRoute {
     let bh_found = find_blackhole(host);
 
@@ -50,7 +55,14 @@ pub fn detect_route(host: &cpal::Host) -> BlackholeRoute {
     BlackholeRoute { mode: "blackhole", device_name: Some(bh_name) }
 }
 
+/// 非 macOS 平台暂无虚拟声卡桥接实现，统一直通。
+#[cfg(not(target_os = "macos"))]
+pub fn detect_route(_host: &cpal::Host) -> BlackholeRoute {
+    BlackholeRoute { mode: "direct", device_name: None }
+}
+
 /// 查找系统中第一个名称包含 "blackhole" 的音频设备，返回设备名
+#[cfg(target_os = "macos")]
 fn find_blackhole(host: &cpal::Host) -> Option<String> {
     let is_bh = |name: &str| name.to_lowercase().contains("blackhole");
 

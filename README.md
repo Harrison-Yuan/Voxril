@@ -77,6 +77,14 @@
 | Network | Needed on first launch (PyPI, HuggingFace, UVR model repos) |
 | Optional | [BlackHole 2ch](https://existential.audio/blackhole/) if you want to route Voxril's output into a DAW or streaming software |
 
+### Platform support
+
+| Platform | Status | Notes |
+|---|---|---|
+| macOS 14+ · Apple Silicon (M1–M4) | ✅ Supported | Official DMG, PyTorch MPS acceleration |
+| macOS 14+ · Intel (x86_64) | ⚠️ Not yet | `ort` ships no prebuilt ONNX Runtime for `x86_64-apple-darwin`; requires `load-dynamic` plus a bundled dylib. CPU-only inference, so real-time mode is not expected to be usable |
+| Windows 10/11 · x64 | 🚧 Reserved | Build/config/CI slots are prepared (`tauri.windows.conf.json`, `release-windows.yml`, `src-tauri/bin/windows-x64/`); runtime adaptation (venv paths, `ffmpeg.exe`, virtual audio device) is still pending |
+
 ---
 
 ## 🚀 Install

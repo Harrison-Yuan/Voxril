@@ -70,10 +70,6 @@ rvc.db
 web/rvc.db
 .workspace-config.json
 
-# FFmpeg binaries
-ffmpeg.*
-ffprobe.*
-
 # Datasets
 dataset/
 

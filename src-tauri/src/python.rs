@@ -16,6 +16,7 @@ fn build_path_with_ffmpeg(project_root: &Path) -> String {
         paths.push(existing);
     }
     // 伴生 ffmpeg 可能的位置
+    let ffmpeg_name = crate::platform::ffmpeg_filename();
     let candidates = [
         project_root.join("bin"),
         project_root.join("src-tauri").join("bin"),
@@ -24,7 +25,7 @@ fn build_path_with_ffmpeg(project_root: &Path) -> String {
         project_root.join("../../bin"),
     ];
     for d in &candidates {
-        let p = d.join("ffmpeg");
+        let p = d.join(ffmpeg_name);
         if p.exists() {
             let s = d.to_string_lossy().to_string();
             if !paths.contains(&s) {
@@ -77,21 +78,19 @@ fn check_python_version(path: &PathBuf) -> bool {
 }
 
 fn find_venv_python(project_root: &PathBuf, data_dir: &PathBuf) -> Option<PathBuf> {
+    let venv_python = crate::platform::venv_python_rel();
     let mut candidates = vec![
         // Development mode: project-local .venv takes priority
-        project_root.join(".venv/bin/python"),
-        project_root.join("venv/bin/python"),
+        project_root.join(".venv").join(venv_python),
+        project_root.join("venv").join(venv_python),
         // Production/DMG mode: app data directory
-        data_dir.join("venv/bin/python"),
+        data_dir.join("venv").join(venv_python),
     ];
 
-    // Homebrew Python 3.10+ (Mac)
-    for ver in ["3.12", "3.11", "3.10"] {
-        for base in ["/opt/homebrew/bin", "/usr/local/bin"] {
-            let p = PathBuf::from(base).join(format!("python{}", ver));
-            if p.exists() {
-                candidates.push(p);
-            }
+    // 系统 Python（macOS: Homebrew；Windows: 预留 PATH 查找）
+    for p in crate::platform::system_python_candidates() {
+        if p.exists() {
+            candidates.push(p);
         }
     }
 
@@ -118,7 +117,7 @@ impl PythonExecutor {
                 let v = p.parent().and_then(|p| p.parent()).map(|p| p.to_path_buf());
                 (p.to_string_lossy().to_string(), v)
             }
-            None => ("python3".to_string(), None),
+            None => (crate::platform::default_python_cmd().to_string(), None),
         };
 
         // ⚠️ DMG 修复：确保 configs/（含子目录）在可写数据目录中存在。

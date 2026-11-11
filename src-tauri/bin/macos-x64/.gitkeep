@@ -1,0 +1,4 @@
+该目录为 Intel macOS (x86_64) 版本预留：放置 x86_64 的 ffmpeg 二进制到这里。
+
+当前阻塞项：ort 2.0.0-rc.12 没有 x86_64-apple-darwin 的预编译包，
+需要改用以 load-dynamic 方式加载自带 libonnxruntime.dylib 后才能构建。

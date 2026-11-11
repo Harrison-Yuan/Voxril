@@ -77,6 +77,14 @@
 | 网络 | 首次启动需要联网（PyPI、HuggingFace、UVR 模型仓库） |
 | 可选 | [BlackHole 2ch](https://existential.audio/blackhole/)，用于把输出路由到 DAW / 直播软件 |
 
+### 平台支持
+
+| 平台 | 状态 | 说明 |
+|---|---|---|
+| macOS 14+ · Apple Silicon（M1–M4） | ✅ 正式支持 | 提供 DMG，使用 PyTorch MPS 加速 |
+| macOS 14+ · Intel（x86_64） | ⚠️ 暂不支持 | `ort` 没有 `x86_64-apple-darwin` 的预编译 ONNX Runtime，需要改 `load-dynamic` 并自带 dylib；且只能 CPU 推理，实时模式预计不可用 |
+| Windows 10/11 · x64 | 🚧 已预留 | 构建配置与 CI 位置已备好（`tauri.windows.conf.json`、`release-windows.yml`、`src-tauri/bin/windows-x64/`），运行时适配（venv 路径、`ffmpeg.exe`、虚拟声卡）尚未完成 |
+
 ---
 
 ## 🚀 安装
