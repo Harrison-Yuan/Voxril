@@ -24,7 +24,6 @@ web/dist/
 # Tauri
 target/
 src-tauri/target/
-src-tauri/Cargo.lock
 
 # IDE
 .vscode/

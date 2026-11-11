@@ -45,7 +45,7 @@ ringbuf = "0.3"
 hound = "3.5"
 symphonia = { version = "0.5", features = ["all"] }
 num_cpus = "1"
-ort = { version = "2.0.0-rc.12", features = ["copy-dylibs"] }
+ort = { version = "=2.0.0-rc.12", features = ["copy-dylibs"] }
 rustfft = "6.2"
 log = "0.4"
 reqwest = { version = "0.12", features = ["json", "cookies", "rustls-tls"], default-features = false }
