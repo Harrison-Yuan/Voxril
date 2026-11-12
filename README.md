@@ -39,6 +39,22 @@
 
 ---
 
+## 📸 Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/live-singing.jpg" alt="Real-time AI singing with synced lyrics" width="860">
+</p>
+
+| Voice conversion | Vocal separation |
+|---|---|
+| <img src="docs/screenshots/voice-conversion.jpg" alt="Voice conversion" width="420"> | <img src="docs/screenshots/vocal-separation.jpg" alt="Vocal separation" width="420"> |
+
+| Train your own voice model | Model manager |
+|---|---|
+| <img src="docs/screenshots/model-training.jpg" alt="RVC v2 training" width="420"> | <img src="docs/screenshots/model-management.jpg" alt="Model manager" width="420"> |
+
+---
+
 ## 💡 Why Voxril?
 
 | The usual pain | Voxril |

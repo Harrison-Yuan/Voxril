@@ -39,6 +39,22 @@
 
 ---
 
+## 📸 界面截图
+
+<p align="center">
+  <img src="docs/screenshots/live-singing.jpg" alt="实时 AI 翻唱 + 同步歌词" width="860">
+</p>
+
+| 语音转换 | 人声分离 |
+|---|---|
+| <img src="docs/screenshots/voice-conversion.jpg" alt="语音转换" width="420"> | <img src="docs/screenshots/vocal-separation.jpg" alt="人声分离" width="420"> |
+
+| 训练专属音色模型 | 模型管理 |
+|---|---|
+| <img src="docs/screenshots/model-training.jpg" alt="RVC v2 训练" width="420"> | <img src="docs/screenshots/model-management.jpg" alt="模型管理" width="420"> |
+
+---
+
 ## 💡 为什么选择 Voxril？
 
 | 常见痛点 | Voxril |
@@ -66,7 +82,7 @@
 
 ---
 
-## � 运行要求
+## 💻 运行要求
 
 | 项目 | 说明 |
 |---|---|
