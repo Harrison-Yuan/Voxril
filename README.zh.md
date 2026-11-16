@@ -289,7 +289,7 @@ pnpm dev    # 启动 Vite (1420) + Tauri 窗口
 pnpm build  # 先递增补丁版本号，再打包 .dmg
 ```
 
-**发版：** 推一个 `v*` tag；也可以在 Actions 里手动运行 **Release** 重打已有 tag。[release.yml](.github/workflows/release.yml) 使用官方 `tauri-apps/tauri-action` 构建 DMG，版本号取自 tag，随 Release 上传 `SHA256SUMS.txt`；配置了 Apple 签名 secrets 时会自动签名并公证，用户双击即可打开。具体 secrets、冷启动检查清单与排错见 [docs/releasing.md](docs/releasing.md)。
+**发版：** 推一个 `v*` tag；也可以在 Actions 里手动运行 **Release** 重打已有 tag。[release.yml](.github/workflows/release.yml) 用 Tauri CLI 构建 `.app`，再用 `hdiutil` 打成 DMG，版本号取自 tag，随 Release 上传 `SHA256SUMS.txt`；配置了 Apple 签名 secrets 时会自动签名并公证，用户双击即可打开。具体 secrets、冷启动检查清单与排错见 [docs/releasing.md](docs/releasing.md)。
 
 </details>
 

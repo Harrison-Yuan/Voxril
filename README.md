@@ -289,7 +289,7 @@ pnpm dev    # Vite on :1420 + the Tauri window
 pnpm build  # bumps the patch version, then builds the .dmg
 ```
 
-**Releasing:** push a `v*` tag — or run the **Release** workflow manually to rebuild an existing tag. [release.yml](.github/workflows/release.yml) builds the DMG with the official `tauri-apps/tauri-action`, takes the version from the tag, publishes the Release with a `SHA256SUMS.txt`, and signs + notarizes the app when the Apple secrets are configured (so users can double-click it). See [docs/releasing.md](docs/releasing.md) for the secrets, the cold-start checklist and troubleshooting.
+**Releasing:** push a `v*` tag — or run the **Release** workflow manually to rebuild an existing tag. [release.yml](.github/workflows/release.yml) builds the `.app` with the Tauri CLI, wraps it into a DMG with `hdiutil`, takes the version from the tag, publishes the Release with a `SHA256SUMS.txt`, and signs + notarizes the build when the Apple secrets are configured (so users can double-click it). See [docs/releasing.md](docs/releasing.md) for the secrets, the cold-start checklist and troubleshooting.
 
 </details>
 

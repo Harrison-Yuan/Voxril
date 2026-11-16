@@ -26,19 +26,16 @@ jobs:
     env:
       TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
-      # ── 可选：配置这些 secrets 后会自动签名 + 公证，用户双击即可打开 ──
-      # APPLE_CERTIFICATE            Developer ID Application 证书（.p12 的 base64）
-      # APPLE_CERTIFICATE_PASSWORD   证书密码
-      # KEYCHAIN_PASSWORD            临时钥匙串密码（随便生成一个）
-      # APPLE_SIGNING_IDENTITY       例如 "Developer ID Application: Your Name (TEAMID)"
-      # APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID   公证用（APPLE_PASSWORD 为 App 专用密码）
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      # ── 可选：配置这些 secrets 后自动签名 + 公证，用户双击即可打开 ──
+      # 注意：这里用 SIGN_* 变量名中转，只有在真正配置了证书时才导出成
+      # APPLE_* 交给 Tauri。若直接把 secrets.APPLE_CERTIFICATE 写进 env，
+      # 未配置时它会以空字符串存在，Tauri 会误以为要签名而导入空证书并报错。
+      SIGN_CERT: ${{ secrets.APPLE_CERTIFICATE }}
+      SIGN_CERT_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      SIGN_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      NOTARY_APPLE_ID: ${{ secrets.APPLE_ID }}
+      NOTARY_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      NOTARY_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
     steps:
       - name: Checkout
@@ -84,20 +81,26 @@ jobs:
       - name: Install Tauri CLI
         run: npm install -g @tauri-apps/cli@^2
 
-      # 有证书才导入；没有证书时整个签名步骤会跳过，产物仍是可用的未签名版本
-      - name: Import code signing certificate
-        if: env.APPLE_CERTIFICATE != ''
+      # 有证书才把 APPLE_* 交给 Tauri（它自己会导入钥匙串并签名 + 公证）；
+      # 没有证书时显式关闭签名探测，产物是未签名版本。
+      - name: Configure signing
         run: |
-          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
-          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security set-keychain-settings -t 3600 -u build.keychain
-          security import certificate.p12 -k build.keychain \
-            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: \
-            -s -k "$KEYCHAIN_PASSWORD" build.keychain
-          rm certificate.p12
+          if [ -n "$SIGN_CERT" ]; then
+            {
+              echo "APPLE_CERTIFICATE<<__CERT__"
+              echo "$SIGN_CERT"
+              echo "__CERT__"
+              echo "APPLE_CERTIFICATE_PASSWORD=$SIGN_CERT_PASSWORD"
+              echo "APPLE_SIGNING_IDENTITY=$SIGN_IDENTITY"
+              echo "APPLE_ID=$NOTARY_APPLE_ID"
+              echo "APPLE_PASSWORD=$NOTARY_PASSWORD"
+              echo "APPLE_TEAM_ID=$NOTARY_TEAM_ID"
+              echo "SIGNING_ENABLED=true"
+            } >> "$GITHUB_ENV"
+          else
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+            echo "SIGNING_ENABLED=false" >> "$GITHUB_ENV"
+          fi
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -110,8 +113,6 @@ jobs:
       # 失败时把日志尾部写进 Job Summary，并把第一条错误作为注解暴露出来。
       - name: Build app
         working-directory: src-tauri
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ env.APPLE_CERTIFICATE != '' }}
         run: |
           set +e
           tauri build \
@@ -157,7 +158,7 @@ jobs:
 
       # 仅当配置了 Apple secrets 时才公证；未签名的构建会跳过
       - name: Notarize DMG
-        if: env.APPLE_CERTIFICATE != ''
+        if: env.SIGNING_ENABLED == 'true'
         run: |
           set -euo pipefail
           DMG="$(ls src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg | head -1)"

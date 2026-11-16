@@ -23,9 +23,12 @@
 
 1. `macos-latest` runner 上装 Node / pnpm / Rust（`aarch64-apple-darwin`）
 2. 构建前端（`pnpm -C web run build`）
-3. 若配置了证书，导入临时钥匙串并签名
-4. 用官方 `tauri-apps/tauri-action` 构建 DMG、创建 Release、上传产物
-5. 生成 `SHA256SUMS.txt` 并追加到同一个 Release
+3. `tauri build --bundles app` 只产出 `.app`（有证书时由 Tauri 自动完成签名）
+4. 用 `hdiutil` 手写 DMG —— Tauri 自带的 DMG 脚本依赖 AppleScript 操作 Finder，在无图形会话的 CI 上不可靠
+5. 有证书时对 DMG 追加 `notarytool` 公证与 `stapler`
+6. 生成 `SHA256SUMS.txt`，与 DMG 一起上传到 Release
+
+> 证书相关变量用 `SIGN_*` 中转，只有配置了 `APPLE_CERTIFICATE` 才会导出成 `APPLE_*` 交给 Tauri。未配置时它们是空字符串，直接透传会让 Tauri 误判为「要签名」并在导入空证书时失败。
 
 ## 签名与公证（可选，但强烈建议）
 
@@ -41,7 +44,6 @@ xattr -dr com.apple.quarantine /Applications/Voxril.app
 |---|---|
 | `APPLE_CERTIFICATE` | `Developer ID Application` 证书 `.p12` 的 base64 |
 | `APPLE_CERTIFICATE_PASSWORD` | 导出 `.p12` 时设置的密码 |
-| `KEYCHAIN_PASSWORD` | 任意随机字符串，仅用于 CI 临时钥匙串 |
 | `APPLE_SIGNING_IDENTITY` | 例如 `Developer ID Application: Your Name (ABCDE12345)` |
 | `APPLE_ID` | Apple 开发者账号邮箱 |
 | `APPLE_PASSWORD` | <https://appleid.apple.com> 生成的 **App 专用密码** |
