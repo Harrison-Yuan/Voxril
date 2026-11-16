@@ -21,7 +21,7 @@
 
 `.github/workflows/release.yml`：
 
-1. `macos-14`（Apple Silicon）上装 Node / pnpm / Rust（`aarch64-apple-darwin`）
+1. `macos-latest` runner 上装 Node / pnpm / Rust（`aarch64-apple-darwin`）
 2. 构建前端（`pnpm -C web run build`）
 3. 若配置了证书，导入临时钥匙串并签名
 4. 用官方 `tauri-apps/tauri-action` 构建 DMG、创建 Release、上传产物
