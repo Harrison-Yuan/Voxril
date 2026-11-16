@@ -55,14 +55,14 @@ function AppInner() {
           <Route path="*" element={
             <AppLayout>
               <Routes>
-                <Route path="/" element={<Navigate to="/live" replace />} />
+                <Route path="/" element={<Navigate to="/train" replace />} />
                 <Route path="/train" element={<TrainPage />} />
                 <Route path="/infer" element={<InferPage />} />
                 <Route path="/uvr" element={<UVRPage />} />
                 <Route path="/live" element={<LiveSingingPage />} />
                 <Route path="/models" element={<ModelsPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
-                <Route path="*" element={<Navigate to="/live" replace />} />
+                <Route path="*" element={<Navigate to="/train" replace />} />
               </Routes>
             </AppLayout>
           } />

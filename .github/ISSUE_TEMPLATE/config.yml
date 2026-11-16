@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 使用教程与常见问题
+    url: https://github.com/Harrison-Yuan/Voxril#-三步做出一首翻唱
+    about: 安装、首次配置、分离 / 转换 / 合成的完整流程都写在这里，先看一遍能省不少时间。
+  - name: 💬 讨论与提问
+    url: https://github.com/Harrison-Yuan/Voxril/discussions
+    about: 不确定是不是 Bug、想聊用法或效果，可以先在 Discussions 里提问。
+  - name: 🔐 安全问题
+    url: https://github.com/Harrison-Yuan/Voxril/security/advisories/new
+    about: 请勿在公开 Issue 里披露安全漏洞，用私有渠道报告。

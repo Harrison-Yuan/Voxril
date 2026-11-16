@@ -25,10 +25,10 @@
       "../requirements.lock",
       "bin/ffmpeg"
     ],
-    "copyright": "AGPL-3.0 License",
+    "copyright": "PolyForm Noncommercial 1.0.0 — commercial use requires a separate license",
     "category": "Entertainment",
-    "shortDescription": "Voxril - Open-source AI Voice Changer & Training for macOS",
-    "longDescription": "Voxril is an open-source AI voice changer for macOS. Train your own voice model, separate vocals, convert audio offline, and sing in real time with 100% local inference. Powered by RVC and optimized for Apple Silicon.",
+    "shortDescription": "Voxril - Local AI Voice Cover Maker for macOS",
+    "longDescription": "Voxril turns any song into a cover sung in your own voice, fully offline. Train a voice model from a few minutes of audio, separate vocals, convert them, and export the finished cover. Powered by RVC and optimized for Apple Silicon.",
     "macOS": {
       "minimumSystemVersion": "14.0",
       "exceptionDomain": "",

@@ -1,26 +1,37 @@
-# Pull request checklist
+## 这个 PR 做了什么
 
-- [ ] The PR has a proper title. Use [Semantic Commit Messages](https://seesparkbox.com/foundry/semantic_commit_messages). (No more branch-name title please)
-- [ ] Make sure this is ready to be merged into the relevant branch. Please don't create a PR and let it hang for a few days.
-- [ ] Ensure you can run the codes you submitted succesfully. These submissions will be prioritized for review:
+<!-- 一两句话说明改动内容和目的 -->
 
-    Introduce improvements in program execution speed;
+## 为什么要改
 
-    Introduce improvements in synthesis quality;
+<!-- 关联 Issue，例如 Closes #12；说明原来的问题是什么 -->
 
-    Fix existing bugs reported by user feedback (or you met);
+## 改动范围
 
-    Introduce more convenient user operations.
+- [ ] 前端界面（`web/`）
+- [ ] Rust 后端（`src-tauri/`）
+- [ ] Python 引擎（`infer/`、`tools/`）
+- [ ] 文档 / 截图 / 翻译
+- [ ] 构建、CI 或依赖
 
-# PR type
+## 怎么验证的
 
-- Bug fix / new feature / synthesis quality improvement / program execution speed improvement
+<!-- 写清你实际跑了什么、看到什么结果。改了音频链路请说明素材与听感差异 -->
 
-# Description
+```bash
+pnpm -C web run build
+cargo check --manifest-path src-tauri/Cargo.toml
+python -m compileall -q infer tools configs
+```
 
-- Describe what this pull request is for.
-- What will it affect.
+## 截图 / 录屏（界面改动必填）
 
-# Screenshot
+<!-- 直接拖进来 -->
 
-- Please include a screenshot if applicable
+## 检查项
+
+- [ ] 只做了这一件事，没有混入无关的格式化或重命名
+- [ ] 本地跑过上面与改动相关的检查
+- [ ] 没有提交 `.venv/`、模型权重、测试音频、`node_modules/`、`src-tauri/target/`
+- [ ] 提交信息遵循 Conventional Commits（`feat:` / `fix:` / `docs:` / …）
+- [ ] 我同意我的贡献按项目当前许可（PolyForm Noncommercial 1.0.0）分发，并允许维护者为商业授权目的再许可

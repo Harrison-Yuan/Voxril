@@ -1,0 +1,111 @@
+name: 🐛 Bug 报告
+description: 应用崩溃、没有输出、音质异常、界面异常等问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请尽量把信息填完整 —— 能复现的 Bug 通常几天内就能修好。
+
+        如果问题是**实时翻唱**（`/live` 页面）引起的，请注明，该功能目前属于实验特性。
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么
+      description: 用一两句话描述问题，例如「分离完成后 vocals 文件夹是空的」
+      placeholder: 点击「开始分离」后日志显示完成，但输出目录里没有人声文件。
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 按顺序写清每一步点了什么、选了哪个文件
+      placeholder: |
+        1. 打开「人声分离」
+        2. 选择 xxx.mp3（时长约 3 分钟）
+        3. 模型保持 BS-RoFormer，点击「开始分离」
+        4. 等待约 2 分钟后日志停在 "segment 1/8"
+    validations:
+      required: true
+
+  - type: input
+    id: expected
+    attributes:
+      label: 你期望的结果
+      placeholder: 分离完成后在 separated/vocals 下看到 wav 文件
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志或报错
+      description: 应用内日志、终端输出都可以；贴关键片段即可
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: 截图或录屏
+      description: 直接拖进来或粘贴即可
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 出问题的功能
+      options:
+        - 人声分离
+        - 模型训练
+        - 语音转换
+        - 合成伴奏
+        - 模型管理 / 首次配置
+        - 实时翻唱（实验特性）
+        - 其他
+    validations:
+      required: true
+
+  - type: input
+    id: app-version
+    attributes:
+      label: Voxril 版本
+      description: 在「关于」或 DMG 文件名里可以看到，例如 0.2.0
+      placeholder: 0.2.0
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS 版本与芯片
+      placeholder: macOS 14.5 / M2 Pro
+    validations:
+      required: true
+
+  - type: input
+    id: workspace
+    attributes:
+      label: 工作区路径
+      description: 路径里是否包含中文或空格，有时会影响子进程调用
+      placeholder: /Users/me/Voxril-Workspace
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已经搜索过 Issue，没有发现相同问题
+          required: true
+        - label: 我已经确认基础模型在「模型管理」里都是「已就绪」
+          required: false
+        - label: 如果这是实时翻唱的问题，我知道它属于实验特性，仍然希望反馈
+          required: false
