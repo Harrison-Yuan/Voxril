@@ -105,9 +105,10 @@ jobs:
       - name: Build frontend
         run: pnpm -C web run build
 
-      # 构建失败时把日志尾部写进 Job Summary —— Actions 的原始日志需要登录才能下载，
-      # 而 Summary 在公开仓库里无需登录即可查看，方便维护者和贡献者一起排错。
-      - name: Build DMG
+      # 只构建 .app：Tauri 自带的 DMG 打包脚本依赖 AppleScript 操作 Finder，
+      # 在无图形会话的 CI runner 上容易失败；DMG 改用 hdiutil 生成，完全不依赖 GUI。
+      # 失败时把日志尾部写进 Job Summary，并把第一条错误作为注解暴露出来。
+      - name: Build app
         working-directory: src-tauri
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ env.APPLE_CERTIFICATE != '' }}
@@ -115,18 +116,58 @@ jobs:
           set +e
           tauri build \
             --target aarch64-apple-darwin \
-            --bundles dmg \
+            --bundles app \
             --config "$RUNNER_TEMP/tauri.ci.conf.json" 2>&1 | tee build.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
             {
-              echo "## ❌ DMG build failed (exit $status)"
+              echo "## ❌ Build failed (exit $status)"
               echo '```'
               tail -n 120 build.log
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
+            grep -i -m1 -E "error(\[|:)|failed|panic" build.log \
+              | while IFS= read -r line; do echo "::error title=build.log::${line}"; done
             exit "$status"
           fi
+
+      - name: Create DMG
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.value }}"
+          APP="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Voxril.app"
+          OUT="src-tauri/target/aarch64-apple-darwin/release/bundle/dmg"
+          STAGE="$(mktemp -d)"
+
+          test -d "$APP" || { echo "::error title=missing app::找不到 $APP"; exit 1; }
+          cp -R "$APP" "$STAGE/"
+          ln -s /Applications "$STAGE/Applications"
+          mkdir -p "$OUT"
+
+          hdiutil create \
+            -volname "Voxril" \
+            -srcfolder "$STAGE" \
+            -fs HFS+ \
+            -format UDZO \
+            -ov \
+            "$OUT/Voxril_${VERSION}_aarch64.dmg"
+
+          rm -rf "$STAGE"
+          ls -lh "$OUT"
+
+      # 仅当配置了 Apple secrets 时才公证；未签名的构建会跳过
+      - name: Notarize DMG
+        if: env.APPLE_CERTIFICATE != ''
+        run: |
+          set -euo pipefail
+          DMG="$(ls src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg | head -1)"
+          xcrun notarytool submit "$DMG" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
 
       - name: Generate SHA-256 checksums
         run: |
