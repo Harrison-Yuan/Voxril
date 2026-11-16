@@ -81,6 +81,9 @@ jobs:
           workspaces: src-tauri -> target
           key: macos-arm64
 
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli@^2
+
       # 有证书才导入；没有证书时整个签名步骤会跳过，产物仍是可用的未签名版本
       - name: Import code signing certificate
         if: env.APPLE_CERTIFICATE != ''
@@ -102,24 +105,46 @@ jobs:
       - name: Build frontend
         run: pnpm -C web run build
 
-      # 覆盖 beforeBuildCommand：CI 里没有 .venv，跳过 bump_version 与依赖校验；
-      # 版本号直接取 tag（v0.2.0 → 0.2.0），源码里的版本号不需要跟着改。
-      - name: Build, sign and publish
-        uses: tauri-apps/tauri-action@v0
+      # 构建失败时把日志尾部写进 Job Summary —— Actions 的原始日志需要登录才能下载，
+      # 而 Summary 在公开仓库里无需登录即可查看，方便维护者和贡献者一起排错。
+      - name: Build DMG
+        working-directory: src-tauri
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 没有证书时显式关闭签名自动探测，避免构建直接失败
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ env.APPLE_CERTIFICATE != '' }}
+        run: |
+          set +e
+          tauri build \
+            --target aarch64-apple-darwin \
+            --bundles dmg \
+            --config "$RUNNER_TEMP/tauri.ci.conf.json" 2>&1 | tee build.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "## ❌ DMG build failed (exit $status)"
+              echo '```'
+              tail -n 120 build.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit "$status"
+          fi
+
+      - name: Generate SHA-256 checksums
+        run: |
+          cd src-tauri/target/aarch64-apple-darwin/release/bundle/dmg
+          shasum -a 256 ./*.dmg > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
         with:
-          tagName: ${{ env.TAG }}
-          releaseName: Voxril ${{ env.TAG }}
-          releaseDraft: false
+          tag_name: ${{ env.TAG }}
+          name: Voxril ${{ env.TAG }}
+          draft: false
           prerelease: false
-          args: >-
-            --target aarch64-apple-darwin
-            --bundles dmg
-            --config ${{ runner.temp }}/tauri.ci.conf.json
-          releaseBody: |
+          files: |
+            src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+            src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/SHA256SUMS.txt
+          body: |
             ## 下载即用
 
             1. 下载下面的 `.dmg`
@@ -151,15 +176,3 @@ jobs:
 
             Requires macOS 14+ on Apple Silicon and Python 3.10+ installed.
             Unsigned builds need `xattr -dr com.apple.quarantine /Applications/Voxril.app`.
-
-      - name: Generate SHA-256 checksums
-        run: |
-          cd src-tauri/target/aarch64-apple-darwin/release/bundle/dmg
-          shasum -a 256 ./*.dmg > SHA256SUMS.txt
-          cat SHA256SUMS.txt
-
-      - name: Attach checksums to the release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.TAG }}
-          files: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/SHA256SUMS.txt
