@@ -10,9 +10,9 @@
 
 **难度**：🟢 新手友好 · **技能**：React / TypeScript
 
-**背景**：`web/src/i18n/zh.ts`、`en.ts` 已支持中英切换，但「语音转换」「人声分离」「模型管理」「设置」等页面仍有大量中文字符串写死在组件里，切到 English 后中英混排。
+**背景**：`web/src/i18n/zh.ts`、`en.ts` 已支持中英切换，但「一键翻唱」「训练模型」「语音转换」「人声分离」「模型管理」「设置」等页面仍有大量中文字符串写死在组件里，切到 English 后中英混排。
 
-**起点**：`web/src/pages/Infer/index.tsx`、`UVR/index.tsx`、`Models/index.tsx`、`Settings/index.tsx`，文案表在 `web/src/i18n/`。
+**起点**：`web/src/pages/Cover/index.tsx`（默认页）、`Train/index.tsx`、`Infer/index.tsx`、`UVR/index.tsx`、`Models/index.tsx`、`Settings/index.tsx`，文案表在 `web/src/i18n/`。
 
 **验收**：语言切到 English 后，上述页面不再出现中文（专有名词如 BS-RoFormer 除外）；中文界面文案保持不变。
 
@@ -22,9 +22,9 @@
 
 **难度**：🟡 中等 · **技能**：React / TypeScript（少量 Rust 命令调用）
 
-**背景**：新用户第一次打开会看到空白工作区与「模型下载中」，不知道该做什么。Roadmap 里的「首次使用引导向导」可以拆成一个小 PR。
+**背景**：新用户第一次打开会停在「一键翻唱」，但还没有任何音色，只能看到「去训练一个声音」的空状态；基础模型也可能还在下载。Roadmap 里的「首次使用引导向导」可以拆成一个小 PR。
 
-**起点**：`web/src/App.tsx` 路由、`web/src/pages/Settings/index.tsx`、`web/src/api/infer.ts` 里已有的 `get_base_models_status` / `get_workspace`。
+**起点**：`web/src/App.tsx` 路由（默认 `/cover`）、`web/src/pages/Cover/index.tsx` 的语音列表空状态、`web/src/pages/Settings/index.tsx`、`web/src/api/infer.ts` 里已有的 `get_base_models_status` / `get_workspace`。
 
 **建议方案**：检测「未设置工作区」或「存在未下载的基础模型」时，在主界面顶部显示一条三步引导：检查 Python → 选择工作区 → 下载模型，每步带跳转按钮。
 

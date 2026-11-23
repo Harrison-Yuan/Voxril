@@ -4,9 +4,9 @@
 //! 所有修音后的人声、翻唱人声、伴奏都在这里按音量混合。
 //!
 //! # 排错指南
-//! - 某路不出声 → 检查 `mix_audio_tracks()` 中的音量系数
-//! - 破音/削波 → 检查 `mix_audio_tracks()` 中的软限幅 `x / (1+|x|)`
-//! - 爆音/噼啪 → 检查 `mix_audio_tracks()` 中 `StreamSmoother` 的启停
+//! - 某路不出声 → 检查 `mix_into()` 中的音量系数
+//! - 破音/削波 → 检查 `mix_into()` 中的软限幅 `x / (1+|x|)`
+//! - 爆音/噼啪 → 检查 `mix_into()` 中 `StreamSmoother` 的启停
 
 use crate::audio_engine::smoother::StreamSmoother;
 
@@ -21,24 +21,18 @@ fn soft_clip(x: f32) -> f32 {
     x / (1.0 + x * x).sqrt()
 }
 
-/// 混音结果
-struct MixedOutput {
-    pub buf: Vec<f32>,
-    pub n_frames: usize,
-}
-
-/// 三路音频 → 混合输出
+/// 三路音频 → 混合写入 `out`（长度即本次混音帧数）
 ///
 /// 参数说明：
-/// - `acc_buf`  / `acc_read`: 伴奏数据
-/// - `vocal_buf` / `vocal_read`: 修音后人声数据
-/// - `cover_buf` / `cover_read`: 翻唱人声数据
-/// - `acc_paused`: 伴奏暂停标志
+/// - `acc_buf`  / `acc_read`: 伴奏数据及本轮有效帧数
+/// - `acc_paused`: 伴奏暂停时整路静音（不消费数据由调用方保证）
+/// - `vocal_buf` / `vocal_read`: 修音后人声数据及本轮有效帧数
+/// - `cover_buf` / `cover_read`: 翻唱人声数据及本轮有效帧数
+/// - `cover_enabled`: 由调用方在进入回调时读取一次 `AUDIO_SOURCE`，避免每采样读原子
 /// - `acc_smoother` / `vocal_smoother` / `cover_smoother`: 启停平滑器（防爆音）
-/// - `playback_counter`: 伴奏播放时钟（48kHz 采样数）
-pub fn mix_audio_tracks(
-    mono_frames: usize,
-
+///
+/// 实时约束：不分配内存、不读取原子、不加锁。
+pub fn mix_into(
     acc_buf: &[f32],
     acc_read: usize,
     acc_paused: bool,
@@ -48,18 +42,17 @@ pub fn mix_audio_tracks(
 
     cover_buf: &[f32],
     cover_read: usize,
+    cover_enabled: bool,
 
     acc_smoother: &mut StreamSmoother,
     vocal_smoother: &mut StreamSmoother,
     cover_smoother: &mut StreamSmoother,
 
-    mixed: &mut Vec<f32>,
-) -> usize {
-    mixed.resize(mono_frames, 0.0);
-
-    for i in 0..mono_frames {
-        // 伴奏：断流时用 smoothing 淡出
-        let a = if i >= acc_read || acc_paused {
+    out: &mut [f32],
+) {
+    for i in 0..out.len() {
+        // 伴奏：断流/暂停时用 smoothing 淡出
+        let a = if acc_paused || i >= acc_read {
             acc_smoother.next(None)
         } else {
             acc_smoother.next(Some(acc_buf[i]))
@@ -72,26 +65,21 @@ pub fn mix_audio_tracks(
             vocal_smoother.next(Some(vocal_buf[i]))
         };
 
-        // 翻唱人声：由 AUDIO_SOURCE 门控 audible（0=真人，1=翻唱）
-        let cover_enabled = crate::audio_engine::AUDIO_SOURCE.load(std::sync::atomic::Ordering::Relaxed) == 1;
+        // 翻唱人声：由 cover_enabled 门控 audible（0=真人，1=翻唱）
         let c = if cover_enabled && i < cover_read {
             cover_smoother.next(Some(cover_buf[i]))
         } else {
             cover_smoother.next(None)
         };
 
-        let sum = a * ACC_VOL + v * VOCAL_VOL + c * COVER_VOL;
-        mixed[i] = soft_clip(sum);
+        out[i] = soft_clip(a * ACC_VOL + v * VOCAL_VOL + c * COVER_VOL);
     }
-
-    // 返回实际混音的帧数
-    mono_frames
 }
 
 /// BlackHole 镜像混音（48kHz 输入，线性插值到设备原生采样率）
 ///
-/// 参数与 `mix_audio_tracks` 类似，但多出 `frames`（设备帧数）和 `sr_cb`（设备采样率）。
-/// `sp` = `f * 48000 / sr_cb` 将 48kHz 索引映射到设备采样率空间。
+/// 参数与 `mix_into` 类似，但多出 `frames`（设备帧数）和 `sr_cb`（设备采样率）。
+/// `sp = f * 48000 / sr_cb` 将 48kHz 索引映射到设备采样率空间。
 pub fn mix_bh_monitor(
     frames: usize,
     sr_cb: u32,
@@ -105,6 +93,7 @@ pub fn mix_bh_monitor(
 
     cover_buf: &[f32],
     cover_n: usize,
+    cover_enabled: bool,
 
     vocal_smoother: &mut StreamSmoother,
     cover_smoother: &mut StreamSmoother,
@@ -136,8 +125,7 @@ pub fn mix_bh_monitor(
             vocal_smoother.next(None)
         };
 
-        // 翻唱（线性插值 + smoothing，由 AUDIO_SOURCE 门控）
-        let cover_enabled = crate::audio_engine::AUDIO_SOURCE.load(std::sync::atomic::Ordering::Relaxed) == 1;
+        // 翻唱（线性插值 + smoothing，由 cover_enabled 门控）
         let c = if cover_enabled && si + 1 < cover_n {
             let interp = cover_buf[si] * (1.0 - fr) + cover_buf[si + 1] * fr;
             cover_smoother.next(Some(interp)) * COVER_VOL

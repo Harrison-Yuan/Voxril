@@ -13,6 +13,7 @@
 
 use crate::audio_engine::auto_tune;
 use crate::audio_engine::config;
+use crate::audio_engine::output_stage::{OutputStage, MAX_STAGE_BLOCK};
 use crate::audio_engine::pitch_correction::{PitchCorrector, PV_FFT_SIZE};
 use crate::audio_engine::resampler::StreamResampler;
 use crate::audio_engine::rvc::{build_session, fcpe_f0, rmpe_f0};
@@ -21,7 +22,7 @@ use crate::audio_engine::thread::boost_audio_thread_priority;
 use crate::audio_engine::voice_state::{VoiceState, VoiceStateDetector};
 use crate::audio_engine::{
     blackhole, common_decode_cover, emit_log, emit_progress, push_ringbuf,
-    push_ringbuf_with_latency_cap, LiveSingingConfig, F0_UP_KEY, SILENT_CHUNK,
+    push_ringbuf_with_latency_cap, LiveSingingConfig, F0_UP_KEY,
 };
 use crate::audio_engine::{accompaniment, mixer};
 
@@ -29,7 +30,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ringbuf::{HeapConsumer, HeapProducer, HeapRb};
 use std::collections::VecDeque;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::Emitter;
 use tokio::sync::RwLock;
@@ -46,10 +47,6 @@ fn request_microphone_permission() -> Result<(), String> {
     Ok(())
 }
 
-fn fallback_f0_score() -> Vec<f32> {
-    Vec::new()
-}
-
 // ══════════════════════════════════════════════════════════════════
 //  修音中继线程
 // ══════════════════════════════════════════════════════════════════
@@ -59,12 +56,8 @@ fn run_correction_relay(
     mut bh_vocal_prod: Option<&mut HeapProducer<f32>>,
     mic_cons: &mut HeapConsumer<f32>,
     config: LiveSingingConfig,
-    f0_score: Vec<f32>,
     running: Arc<AtomicBool>,
     app_handle: tauri::AppHandle,
-    _active_flag: Arc<RwLock<bool>>,
-    _playback_counter: Arc<AtomicUsize>,
-    data_ready: Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>,
 ) {
     boost_audio_thread_priority();
 
@@ -89,8 +82,6 @@ fn run_correction_relay(
         None
     };
 
-    let has_score = !f0_score.is_empty();
-    let score_frames = f0_score.len();
     let mut corrector = PitchCorrector::new();
     let mut auto_tune_engine = auto_tune::AutoTune::new();
     let mut mic_scratch = vec![0.0f32; 4096];
@@ -104,12 +95,13 @@ fn run_correction_relay(
     let mut last_metric_state: &str = "mute";
 
     eprintln!(
-        "[修音] 就绪 {} 谱子帧, FCPE={}, RMVPE={}",
-        score_frames,
+        "[修音] 就绪, FCPE={}, RMVPE={}",
         fcpe_sess.is_some(),
         rmvpe_sess.is_some()
     );
     const CHUNK_960: usize = 960;
+    // 麦克风静音时复用同一段静音缓冲（长度恒等于 CHUNK_960，与修音输出契约一致）
+    let silent_chunk = [0.0f32; CHUNK_960];
 
     loop {
         if !running.load(Ordering::SeqCst) {
@@ -126,18 +118,9 @@ fn run_correction_relay(
             collected += n;
         }
         if collected == 0 {
-            let (lock, cvar) = &*data_ready;
-            let mut ready = lock.lock().unwrap();
-            while !*ready {
-                let (g, _) = cvar
-                    .wait_timeout(ready, std::time::Duration::from_millis(5))
-                    .unwrap();
-                ready = g;
-                if !running.load(Ordering::SeqCst) {
-                    break;
-                }
-            }
-            *ready = false;
+            // 麦克风回调只负责把数据推入环形缓冲，此处以 1ms 轮询等待，
+            // 避免在实时回调与修音线程之间共享锁（锁竞争会导致爆音）。
+            std::thread::sleep(std::time::Duration::from_millis(1));
             continue;
         }
 
@@ -167,16 +150,12 @@ fn run_correction_relay(
                 *s = mic_buf.pop_front().unwrap_or(0.0);
             }
 
-            let mic_f0 = if has_score {
-                if let Some(ref mut fcpe) = fcpe_sess {
-                    let f0_vec = fcpe_f0(&chunk, fcpe);
-                    f0_vec.first().copied().unwrap_or(0.0)
-                } else if let Some(ref mut rmvpe) = rmvpe_sess {
-                    let f0_vec = rmpe_f0(&chunk, 1, rmvpe);
-                    f0_vec.first().copied().unwrap_or(0.0)
-                } else {
-                    0.0
-                }
+            // F0 检测与谱子解耦：只要 FCPE/RMVPE 会话存在就实时推理，
+            // 不存在时 F0 为 0（VAD 会判定为静音/说话，修音链路直通而非崩溃）
+            let mic_f0 = if let Some(ref mut fcpe) = fcpe_sess {
+                fcpe_f0(&chunk, fcpe).first().copied().unwrap_or(0.0)
+            } else if let Some(ref mut rmvpe) = rmvpe_sess {
+                rmpe_f0(&chunk, 1, rmvpe).first().copied().unwrap_or(0.0)
             } else {
                 0.0
             };
@@ -202,14 +181,16 @@ fn run_correction_relay(
             smoothed_pitch_ratio = smoothed_pitch_ratio * (1.0 - retune_speed)
                 + target_pitch_ratio * retune_speed;
 
+            // 定长契约：corrected.len() 恒等于 CHUNK_960
             let corrected = corrector.process(&chunk, smoothed_pitch_ratio);
 
-            let output = if crate::audio_engine::MIC_MUTED.load(Ordering::Relaxed) {
-                &SILENT_CHUNK[..corrected.len()]
+            let output: &[f32] = if crate::audio_engine::MIC_MUTED.load(Ordering::Relaxed) {
+                &silent_chunk
             } else {
                 &corrected
             };
 
+            // 水位保护仅作异常兜底：定长流水线下游正常消费时不应触发
             let prod_ok = vocal_prod.len() < MAX_OUT_WATERMARK
                 && bh_vocal_prod
                     .as_ref()
@@ -274,7 +255,7 @@ fn run_correction_relay(
 pub fn start_live_engine(
     config: LiveSingingConfig,
     app_handle: tauri::AppHandle,
-    active_flag: Arc<RwLock<bool>>,
+    phase: Arc<RwLock<crate::state::LivePhase>>,
     stop_rx: oneshot::Receiver<()>,
 ) -> Result<(), String> {
     eprintln!("[VocalBoost] 入口");
@@ -388,11 +369,11 @@ pub fn start_live_engine(
     // ── 缓冲区 ──
     let (mut mic_prod, mut mic_cons) =
         HeapRb::<f32>::new(config::INPUT_RING_CAPACITY).split();
-    let (mut acc_prod, mut acc_cons) =
+    let (mut acc_prod, acc_cons) =
         HeapRb::<f32>::new(config::ACC_RING_CAPACITY).split();
-    let (mut cover_prod, mut cover_cons) =
+    let (mut cover_prod, cover_cons) =
         HeapRb::<f32>::new(config::ACC_RING_CAPACITY).split();
-    let (mut vocal_prod, mut vocal_cons) =
+    let (mut vocal_prod, vocal_cons) =
         HeapRb::<f32>::new(config::OUTPUT_RING_CAPACITY).split();
 
     let mut has_bh = false;
@@ -424,119 +405,13 @@ pub fn start_live_engine(
     let _ = push_ringbuf(&mut cover_prod, &acc_prefill);
 
     let running = Arc::new(AtomicBool::new(true));
-    let data_ready: Arc<(std::sync::Mutex<bool>, std::sync::Condvar)> =
-        Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
-    let playback_counter = Arc::new(AtomicUsize::new(0));
-    let acc_drop_samples = Arc::new(AtomicUsize::new(0));
-    let cover_drop_samples = Arc::new(AtomicUsize::new(0));
-    let _mic_drop_samples = Arc::new(AtomicUsize::new(0));
-    let _vocal_drop_samples = Arc::new(AtomicUsize::new(0));
-    let _vocal_drop_chunks = Arc::new(AtomicUsize::new(0));
-    let vocal_underrun_samples = Arc::new(AtomicUsize::new(0));
-    let vocal_underrun_callbacks = Arc::new(AtomicUsize::new(0));
-    let vocal_buf_level = Arc::new(AtomicUsize::new(0));
 
-    // ── F0 谱子 ──
-    let f0_score_hz: Vec<f32> = {
-        let f0_json_path = if !config.f0_score_path.is_empty() {
-            std::path::PathBuf::from(&config.f0_score_path)
-        } else if !config.accompaniment_path.is_empty() {
-            std::path::PathBuf::from(&config.accompaniment_path)
-                .with_extension("f0.json")
-        } else {
-            std::path::PathBuf::new()
-        };
-        if f0_json_path.exists() {
-            match std::fs::read_to_string(&f0_json_path) {
-                Ok(content) => {
-                    match serde_json::from_str::<crate::audio_engine::types::F0Profile>(
-                        &content,
-                    ) {
-                        Ok(profile) => {
-                            emit_log(
-                                &app_handle,
-                                &format!(
-                                    "[F0] ✅ 加载真实谱子: {} 帧, {:.1}s",
-                                    profile.f0_curve.len(),
-                                    profile.duration_secs()
-                                ),
-                            );
-                            if profile.hop_length == 480 {
-                                profile.f0_curve
-                            } else {
-                                let ratio =
-                                    profile.sample_rate as f64 / profile.hop_length as f64;
-                                let target_frames =
-                                    (profile.f0_curve.len() as f64 * 100.0 / ratio) as usize;
-                                let mut resampled = Vec::with_capacity(target_frames);
-                                for i in 0..target_frames {
-                                    let idx = (i as f64 / target_frames as f64
-                                        * profile.f0_curve.len() as f64)
-                                        as usize;
-                                    resampled.push(profile.f0_curve.get(idx).copied().unwrap_or(0.0));
-                                }
-                                resampled
-                            }
-                        }
-                        Err(e) => {
-                            emit_log(&app_handle, &format!("[F0] ⚠️ 解析失败: {}", e));
-                            fallback_f0_score()
-                        }
-                    }
-                }
-                Err(e) => {
-                    emit_log(&app_handle, &format!("[F0] ⚠️ 读取失败: {}", e));
-                    fallback_f0_score()
-                }
-            }
-        } else if !config.accompaniment_path.is_empty() {
-            emit_log(&app_handle, "[F0] 未找到 .f0.json，使用实时 YIN");
-            fallback_f0_score()
-        } else {
-            fallback_f0_score()
-        }
-    };
-
-    // ── LRC 歌词：检测初始歌词路径，写到全局原子供歌词线程加载 ──
-    {
-        emit_log(
-            &app_handle,
-            &format!(
-                "[歌词] 初始检测: f0_score_path='{}', acc_path='{}'",
-                config.f0_score_path, config.accompaniment_path
-            ),
-        );
-
-        let lrc_path = if !config.f0_score_path.is_empty() {
-            let p = std::path::Path::new(&config.f0_score_path);
-            let fname = p.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-            let base = fname.strip_suffix(".f0").unwrap_or(fname);
-            let dir = p.parent().unwrap_or(std::path::Path::new(""));
-            let lrc_candidate = dir.join(format!("{}.lrc", base));
-            if lrc_candidate.exists() { Some(lrc_candidate.to_string_lossy().to_string()) } else { None }
-        } else if !config.accompaniment_path.is_empty() {
-            let fname = std::path::Path::new(&config.accompaniment_path)
-                .file_stem().and_then(|s| s.to_str()).unwrap_or("");
-            let vocal_name = fname
-                .replacen("instrumental_", "vocal_", 1)
-                .replacen("instrument_", "vocal_", 1)
-                .replacen("instrument", "vocal", 1);
-            let parent = std::path::Path::new(&config.accompaniment_path)
-                .parent().unwrap_or(std::path::Path::new(""));
-            let parent_str = parent.to_string_lossy().to_string();
-            let vocal_dir = parent_str
-                .replacen("instrumental", "vocals", 1)
-                .replacen("instrument", "vocals", 1);
-            let p = std::path::Path::new(&vocal_dir).join(format!("{}.lrc", vocal_name));
-            if p.exists() { Some(p.to_string_lossy().to_string()) } else { None }
-        } else { None };
-
-        if let Some(ref path) = lrc_path {
-            emit_log(&app_handle, &format!("[歌词] 初始路径: {}", path));
-            crate::audio_engine::accompaniment::set_lrc_path(path.clone());
-        } else {
-            emit_log(&app_handle, "[歌词] 未找到 LRC 文件");
-        }
+    // ── LRC 歌词：由前端在启动时显式传入，写到全局原子供歌词线程加载 ──
+    if !config.lrc_path.is_empty() && Path::new(&config.lrc_path).exists() {
+        emit_log(&app_handle, &format!("[歌词] 初始路径: {}", config.lrc_path));
+        crate::audio_engine::accompaniment::set_lrc_path(config.lrc_path.clone());
+    } else {
+        emit_log(&app_handle, "[歌词] 本曲无歌词");
     }
 
     emit_progress(&app_handle, 15, "Phase 3 推理引擎");
@@ -544,13 +419,9 @@ pub fn start_live_engine(
 
     let running_relay = running.clone();
     let app_relay = app_handle.clone();
-    let _playback_counter_relay = playback_counter.clone();
     F0_UP_KEY.store(config.f0_up_key, Ordering::Relaxed);
     let config_cover = config.cover_path.clone();
-    let active_flag_post = active_flag.clone();
-    let f0_score_for_correction = f0_score_hz.clone();
-    let playback_counter_for_correction = playback_counter.clone();
-    let data_ready_relay = data_ready.clone();
+    let phase_post = phase.clone();
 
     std::thread::spawn(move || {
         let bh_ref = if has_bh {
@@ -563,12 +434,8 @@ pub fn start_live_engine(
             bh_ref,
             &mut mic_cons,
             config.clone(),
-            f0_score_for_correction,
             running_relay.clone(),
             app_relay.clone(),
-            active_flag.clone(),
-            playback_counter_for_correction,
-            data_ready,
         );
     });
 
@@ -602,6 +469,7 @@ pub fn start_live_engine(
                     }
                     pos = 0;
                     has_loaded_once = !current_audio.is_empty();
+                    accompaniment::ACC_ENDED.store(false, Ordering::Relaxed);
                     emit_log(&app_acc, &format!("[伴奏] 版本变更：重置 pos=0, 时长={:.1}s", current_audio.len() as f64 / 48000.0));
                     continue;
                 }
@@ -614,6 +482,7 @@ pub fn start_live_engine(
                     if target_pos >= 0 {
                         pos = target_pos as usize;
                         accompaniment::ACC_PUSH_POS.store(pos, Ordering::Relaxed);
+                        accompaniment::ACC_ENDED.store(false, Ordering::Relaxed);
                         emit_log(&app_acc, &format!("[伴奏] seek 到位置 {:.1}s", pos as f64 / 48000.0));
                     }
                 }
@@ -627,6 +496,7 @@ pub fn start_live_engine(
                     current_audio = new_audio;
                     pos = 0;
                     crate::audio_engine::accompaniment::ACC_PUSH_POS.store(0, Ordering::Relaxed);
+                    accompaniment::ACC_ENDED.store(false, Ordering::Relaxed);
                     has_loaded_once = !current_audio.is_empty();
                 }
 
@@ -647,18 +517,19 @@ pub fn start_live_engine(
                     if let Some(ref mut bhp) = bh_acc {
                         let _ = push_ringbuf_with_latency_cap(bhp, chunk, 48000);
                     }
-                    if written < chunk.len() {
-                        acc_drop_samples.fetch_add(chunk.len() - written, Ordering::Relaxed);
-                    }
                     pos += written;
                     // ⚠️ 更新推流位置（cover 线程 seek 时用到）
                     crate::audio_engine::accompaniment::ACC_PUSH_POS.store(pos, Ordering::Relaxed);
                     loop {
                         let level = acc_prod.len();
-                        if level < 24000 { break; }
+                        if level < 24000 || !running_clone.load(Ordering::SeqCst) {
+                            break;
+                        }
                         std::thread::sleep(std::time::Duration::from_millis(10));
                     }
                 } else {
+                    // 全部采样已推入环形缓冲：通知输出级在缓冲排空后判定播放结束
+                    accompaniment::ACC_ENDED.store(true, Ordering::Relaxed);
                     std::thread::sleep(std::time::Duration::from_millis(50));
                 }
             }
@@ -752,14 +623,11 @@ pub fn start_live_engine(
                 if let Some(ref mut bhp) = bh_cov {
                     let _ = push_ringbuf_with_latency_cap(bhp, chunk, 48000);
                 }
-                if written < chunk.len() {
-                    cover_drop_samples.fetch_add(chunk.len() - written, Ordering::Relaxed);
-                }
                 pos += written;
                 // ⚠️ 水位等待策略（与伴奏一致）
                 loop {
                     let level = cover_prod.len();
-                    if level < 24000 {
+                    if level < 24000 || !running_cov.load(Ordering::SeqCst) {
                         break;
                     }
                     std::thread::sleep(std::time::Duration::from_millis(10));
@@ -776,156 +644,12 @@ pub fn start_live_engine(
         }
     });
 
-    // ── 歌词推送线程 ──
-    {
-        let running_lrc = running.clone();
-        let app_lrc = app_handle.clone();
-        let mut prev_index: isize = -3;
-        std::thread::spawn(move || {
-            use crate::audio_engine::lrc::LrcData;
-            let mut current_lrc: Option<LrcData> = None;
-            let mut last_lrc_path: String = String::new();
-            let mut last_lrc_version: usize = 0;
-            let mut tick: u32 = 0;
-
-            let mut last_status = "stopped";
-            let mut last_source = 99;
-            let mut last_loaded = false;
-            let mut last_song_ver: usize = 0;
-
-            // 启动时从 LRC_PATH 加载已有歌词
-            let init_path = crate::audio_engine::accompaniment::get_lrc_path();
-            if !init_path.is_empty() {
-                match std::fs::read_to_string(&init_path) {
-                    Ok(content) => {
-                        let parsed = LrcData::parse(&content);
-                        if !parsed.is_empty() {
-                            let n = parsed.len();
-                            current_lrc = Some(parsed);
-                            emit_log(&app_lrc, &format!("[歌词] 加载: {} 行", n));
-                            // 通知前端预览
-                            let _ = app_lrc.emit("lyrics-preview", serde_json::json!({
-                                "lines": current_lrc.as_ref().map(|l| {
-                                    l.lines.iter().map(|ln| serde_json::json!({
-                                        "time_secs": ln.time_secs,
-                                        "text": ln.text,
-                                    })).collect::<Vec<_>>()
-                                }).unwrap_or_default(),
-                            }));
-                        }
-                    }
-                    Err(e) => emit_log(&app_lrc, &format!("[歌词] 初始加载失败: {}", e)),
-                }
-                last_lrc_path = init_path;
-                last_lrc_version = crate::audio_engine::accompaniment::LRC_VERSION.load(Ordering::Relaxed);
-            }
-
-            while running_lrc.load(Ordering::SeqCst) {
-                tick += 1;
-
-                // ⚠️ SONG_VERSION 检测（换歌/停止），强制下一帧发送完整状态
-                let cur_song_ver = crate::audio_engine::accompaniment::SONG_VERSION.load(Ordering::Relaxed);
-                if cur_song_ver != last_song_ver {
-                    last_song_ver = cur_song_ver;
-                    prev_index = -3;
-                    last_status = "force-send"; // 确保 should_emit=true
-                }
-
-                let cur_version = crate::audio_engine::accompaniment::LRC_VERSION.load(Ordering::Relaxed);
-                if cur_version != last_lrc_version {
-                    last_lrc_version = cur_version;
-                    let cur_path = crate::audio_engine::accompaniment::get_lrc_path();
-                    last_lrc_path = cur_path.clone();
-                    current_lrc = None;
-                    prev_index = -3; // ⚠️ 强制下一 tick 发送 player-state
-
-                    if !cur_path.is_empty() {
-                        match std::fs::read_to_string(&cur_path) {
-                            Ok(content) => {
-                                let parsed = LrcData::parse(&content);
-                                if !parsed.is_empty() {
-                                    let n = parsed.len();
-                                    current_lrc = Some(parsed);
-                                    emit_log(&app_lrc, &format!("[歌词] 加载: {} 行", n));
-                                }
-                            }
-                            Err(e) => emit_log(&app_lrc, &format!("[歌词] 读取失败: {}", e)),
-                        }
-                    } else {
-                        emit_log(&app_lrc, "[歌词] 已清除");
-                    }
-                }
-
-                // ⚠️ 从引擎全局读取当前状态，组成 player-state 事件
-                let pb = crate::audio_engine::accompaniment::PLAYBACK_COUNTER.load(Ordering::Relaxed);
-                let acc_paused = crate::audio_engine::accompaniment::ACC_PAUSED.load(Ordering::Relaxed);
-                let source = crate::audio_engine::AUDIO_SOURCE.load(Ordering::Relaxed);
-                let has_audio = crate::audio_engine::accompaniment::has_audio();
-
-                let status = if !has_audio {
-                    "stopped"
-                } else if acc_paused {
-                    "paused"
-                } else {
-                    "playing"
-                };
-                let loaded = has_audio;
-
-                // 计算歌词位置
-                let (current_text, total_secs, current_idx) = if let Some(ref data) = current_lrc {
-                    let pos_secs = pb as f64 / 48000.0;
-                    let (ci, _ni) = data.find_line_at(pos_secs);
-                    let text = if ci >= 0 { data.lines.get(ci as usize).map(|l| l.text.clone()).unwrap_or_default() } else { String::new() };
-                    let dur = data.total_duration_secs();
-                    (text, dur, ci)
-                } else {
-                    (String::new(), 0.0, -1)
-                };
-
-                let progress_secs = pb as f64 / 48000.0;
-
-                // 是否应当发送事件：状态、音源、或加载情况改变，或者歌词行数改变，或者播放中每200ms自动刷新进度
-                let status_changed = status != last_status;
-                let source_changed = source != last_source;
-                let loaded_changed = loaded != last_loaded;
-                let lrc_line_changed = current_idx != prev_index;
-                let play_tick = status == "playing" && tick % 2 == 0;
-
-                let should_emit = status_changed || source_changed || loaded_changed || lrc_line_changed || play_tick;
-
-                if should_emit {
-                    prev_index = current_idx;
-                    last_status = status;
-                    last_source = source;
-                    last_loaded = loaded;
-
-                    let _ = app_lrc.emit("player-state", serde_json::json!({
-                        "status": status,
-                        "loaded": loaded,
-                        "audio_source": source,
-                        "progress_secs": progress_secs,
-                        "current_line": current_text,
-                        "current_line_index": current_idx,
-                        "total_lines": current_lrc.as_ref().map_or(0, |d| d.len()) as u32,
-                        "total_duration_secs": total_secs,
-                        "preview_lines": current_lrc.as_ref().map(|l| {
-                            l.lines.iter().map(|ln| serde_json::json!({
-                                "time_secs": ln.time_secs,
-                                "text": ln.text,
-                            })).collect::<Vec<_>>()
-                        }).unwrap_or_default(),
-                    }));
-                }
-
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
-        });
-    }
+    // ── 歌词推送线程（独立生命周期，不受引擎启停影响） ──
+    spawn_lyrics_thread(&app_handle);
 
     // ── 输入流 ──
-    let mut in_resampler = if in_sr != engine_sr {
-        let chunk_size = 1024;
-        Some(StreamResampler::new(in_sr, engine_sr, chunk_size))
+    let in_resampler = if in_sr != engine_sr {
+        Some(StreamResampler::new(in_sr, engine_sr, 1024))
     } else {
         None
     };
@@ -933,36 +657,48 @@ pub fn start_live_engine(
         .build_input_stream(
             &input_config,
             {
-                let data_ready_input = data_ready_relay;
+                // 预分配全部实时缓冲：回调内零分配
+                let mut mono_scratch = vec![0.0f32; 4096];
+                let mut rs_scratch = vec![
+                    0.0f32;
+                    in_resampler
+                        .as_ref()
+                        .map(|r| r.output_frames_max())
+                        .unwrap_or(0)
+                ];
+                let mut in_resampler = in_resampler;
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
                     let channels = in_channels;
                     let frames = data.len() / channels;
-
-                    // 快速路径：1ch 48kHz 无重采样
-                    if channels == 1 && in_resampler.is_none() {
-                        let _ = push_ringbuf(&mut mic_prod, data);
-                    } else {
-                        // 混音到 mono
-                        let mut mono = Vec::with_capacity(frames);
-                        for f in 0..frames {
-                            let sum: f32 = data[f * channels..(f + 1) * channels]
-                                .iter()
-                                .sum();
-                            mono.push(sum / channels as f32);
-                        }
-                        if let Some(ref mut r) = in_resampler {
-                            let resampled = r.push(&mono);
-                            let _ = push_ringbuf(&mut mic_prod, &resampled);
-                        } else {
-                            let _ = push_ringbuf(&mut mic_prod, &mono);
-                        }
+                    if frames == 0 {
+                        return;
                     }
 
-                    // Condvar 唤醒修音线程
-                    let (lock, cvar) = &*data_ready_input;
-                    let mut ready = lock.lock().unwrap();
-                    *ready = true;
-                    cvar.notify_one();
+                    // 快速路径：1ch 且无需重采样
+                    if channels == 1 && in_resampler.is_none() {
+                        let _ = push_ringbuf(&mut mic_prod, data);
+                        return;
+                    }
+
+                    // 多声道混单 / 采样率转换
+                    if mono_scratch.len() < frames {
+                        mono_scratch.resize(frames, 0.0);
+                    }
+                    for f in 0..frames {
+                        let mut sum = 0.0f32;
+                        for c in 0..channels {
+                            sum += data[f * channels + c];
+                        }
+                        mono_scratch[f] = sum / channels as f32;
+                    }
+
+                    if let Some(ref mut r) = in_resampler {
+                        r.feed(&mono_scratch[..frames]);
+                        let n = r.drain_into(&mut rs_scratch);
+                        let _ = push_ringbuf(&mut mic_prod, &rs_scratch[..n]);
+                    } else {
+                        let _ = push_ringbuf(&mut mic_prod, &mono_scratch[..frames]);
+                    }
                 }
             },
             |err| eprintln!("[输入流] {}", err),
@@ -971,131 +707,21 @@ pub fn start_live_engine(
         .map_err(|e| e.to_string())?;
 
     // ── 输出流 ──
-    let playback_counter_out = playback_counter.clone();
-    let vocal_underrun_samples_out = vocal_underrun_samples.clone();
-    let vocal_underrun_callbacks_out = vocal_underrun_callbacks.clone();
-    let vocal_buf_level_out = vocal_buf_level.clone();
-    let output_resampler = if out_sr != engine_sr {
-        let chunk_size = 512;
-        Some(StreamResampler::new(engine_sr, out_sr, chunk_size))
-    } else {
-        None
-    };
+    // 输出级集中处理换歌/暂停同步、混音、重采样与唯一播放时钟，
+    // 音频回调本身只保留一次 `fill`，便于审计实时安全性。
+    let mut output_stage = OutputStage::new(
+        acc_cons,
+        vocal_cons,
+        cover_cons,
+        engine_sr,
+        out_sr,
+        out_channels,
+    );
     let output_stream = output_device
         .build_output_stream(
             &output_config,
-            {
-                let mut vocal_smoother = StreamSmoother::new();
-                let mut cover_smoother = StreamSmoother::new();
-                let mut acc_smoother = StreamSmoother::new();
-                let out_ch_cb = out_channels;
-                let mut mono_buf: Vec<f32> = Vec::new();
-                let mut out_resampler = output_resampler;
-                let mut vocal_buf_local: Vec<f32> = Vec::new();
-                let mut cover_buf_local: Vec<f32> = Vec::new();
-                let mut mixed: Vec<f32> = Vec::new();
-                let mut last_seek_ver: usize = 0;
-                let mut last_song_ver: usize = 0;
-                move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                    let frames = data.len() / out_ch_cb.max(1);
-                    let mono_frames = if engine_sr == out_sr {
-                        frames
-                    } else {
-                        (frames as f64 * engine_sr as f64 / out_sr as f64).ceil() as usize
-                    };
-
-                    if mono_buf.len() < mono_frames {
-                        mono_buf.resize(mono_frames, 0.0);
-                    }
-
-                    // ⚠️ 检测 SONG_VERSION（换歌/停止），清空所有 RingBuffer + 重置计数器
-                    let cur_song_ver = crate::audio_engine::accompaniment::SONG_VERSION.load(Ordering::Relaxed);
-                    if cur_song_ver != last_song_ver {
-                        last_song_ver = cur_song_ver;
-                        playback_counter_out.store(0, Ordering::SeqCst);
-                        let mut discard = [0.0f32; 1024];
-                        while acc_cons.pop_slice(&mut discard) > 0 {}
-                        while vocal_cons.pop_slice(&mut discard) > 0 {}
-                        while cover_cons.pop_slice(&mut discard) > 0 {}
-                    }
-
-                    // 检测 Seek，清空 RingBuffer，消除延迟
-                    let cur_seek_ver = accompaniment::ACC_SEEK_VERSION.load(Ordering::Relaxed);
-                    if cur_seek_ver != last_seek_ver {
-                        last_seek_ver = cur_seek_ver;
-                        let target_pos = accompaniment::ACC_SEEK_POSITION.load(Ordering::Relaxed);
-                        if target_pos >= 0 {
-                            // 重置本地 Arc 计数器，确保和全局同步
-                            playback_counter_out.store(target_pos as usize, Ordering::SeqCst);
-                        }
-                        let mut discard = [0.0f32; 1024];
-                        while acc_cons.pop_slice(&mut discard) > 0 {}
-                        while cover_cons.pop_slice(&mut discard) > 0 {}
-                    }
-                    if vocal_buf_local.len() < mono_frames {
-                        vocal_buf_local.resize(mono_frames, 0.0);
-                    }
-                    if cover_buf_local.len() < mono_frames {
-                        cover_buf_local.resize(mono_frames, 0.0);
-                    }
-
-                    let acc_read = acc_cons.pop_slice(&mut mono_buf[..mono_frames]);
-                    let vocal_read = vocal_cons.pop_slice(&mut vocal_buf_local[..mono_frames]);
-                    let cover_read = cover_cons.pop_slice(&mut cover_buf_local[..mono_frames]);
-                    vocal_buf_level_out.store(vocal_cons.len(), Ordering::Relaxed);
-
-                    let is_underrun = vocal_read < mono_frames;
-                    if is_underrun {
-                        vocal_underrun_callbacks_out.fetch_add(1, Ordering::Relaxed);
-                        vocal_underrun_samples_out
-                            .fetch_add(mono_frames - vocal_read, Ordering::Relaxed);
-                    }
-
-                    let acc_paused = accompaniment::ACC_PAUSED.load(Ordering::Relaxed);
-
-                    // 混音
-                    let _ = mixer::mix_audio_tracks(
-                        mono_frames,
-                        &mono_buf,
-                        acc_read,
-                        acc_paused,
-                        &vocal_buf_local,
-                        vocal_read,
-                        &cover_buf_local,
-                        cover_read,
-                        &mut acc_smoother,
-                        &mut vocal_smoother,
-                        &mut cover_smoother,
-                        &mut mixed,
-                    );
-
-                    // ⚠️ 播放时钟：只在实际播放时前进，暂停时冻结
-                    // 用 acc_paused 门控而非 acc_read（acc_read 在暂停时可能为 0
-                    // 但输出回调仍然会触发，防止歌词与音频不同步）
-                    if !acc_paused {
-                        let new_pos = playback_counter_out.fetch_add(mono_frames, Ordering::SeqCst) + mono_frames;
-                        // 同步写入全局，供歌词线程和 seek 命令读取
-                        crate::audio_engine::accompaniment::PLAYBACK_COUNTER.store(new_pos, Ordering::SeqCst);
-                    }
-
-                    // 重采样 → 输出
-                    if let Some(ref mut r) = out_resampler {
-                        let resampled = r.push(&mixed);
-                        for f in 0..frames {
-                            let sample = *resampled.get(f).unwrap_or(&0.0);
-                            for c in 0..out_ch_cb {
-                                data[f * out_ch_cb + c] = sample;
-                            }
-                        }
-                    } else {
-                        for f in 0..frames {
-                            let sample = if f < mixed.len() { mixed[f] } else { 0.0 };
-                            for c in 0..out_ch_cb {
-                                data[f * out_ch_cb + c] = sample;
-                            }
-                        }
-                    }
-                }
+            move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                output_stage.fill(data);
             },
             |err| eprintln!("[输出流] {}", err),
             None,
@@ -1161,11 +787,13 @@ pub fn start_live_engine(
                 let mut bh_cover_smoother = StreamSmoother::new();
                 let ch = out_channels;
                 let sr_cb = out_sr;
-                let mut bh_acc_buf: Vec<f32> = Vec::new();
-                let mut bh_vocal_buf: Vec<f32> = Vec::new();
-                let mut bh_cover_buf: Vec<f32> = Vec::new();
-                let mut last_seek_ver: usize = 0;
-                let mut last_song_ver: usize = 0;
+                // 预分配实时缓冲：回调内零分配（仅在设备给出超常规帧数时扩容）
+                let mut bh_acc_buf = vec![0.0f32; MAX_STAGE_BLOCK];
+                let mut bh_vocal_buf = vec![0.0f32; MAX_STAGE_BLOCK];
+                let mut bh_cover_buf = vec![0.0f32; MAX_STAGE_BLOCK];
+                let mut bh_discard = [0.0f32; 1024];
+                let mut last_seek_ver: usize = usize::MAX;
+                let mut last_song_ver: usize = usize::MAX;
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                     let frames = data.len() / ch.max(1);
                     let mono_frames = if sr_cb == 48000 {
@@ -1175,37 +803,35 @@ pub fn start_live_engine(
                     };
                     if bh_acc_buf.len() < mono_frames {
                         bh_acc_buf.resize(mono_frames, 0.0);
+                        bh_vocal_buf.resize(mono_frames, 0.0);
+                        bh_cover_buf.resize(mono_frames, 0.0);
                     }
 
                     // ⚠️ SONG_VERSION 检测（换歌/停止时 drain）
-                    let cur_song_ver = crate::audio_engine::accompaniment::SONG_VERSION.load(Ordering::Relaxed);
+                    let cur_song_ver = accompaniment::SONG_VERSION.load(Ordering::Relaxed);
                     if cur_song_ver != last_song_ver {
                         last_song_ver = cur_song_ver;
-                        let mut discard = [0.0f32; 1024];
-                        while bh_acc_c.pop_slice(&mut discard) > 0 {}
-                        while bh_cons.pop_slice(&mut discard) > 0 {}
-                        while bh_cov_c.pop_slice(&mut discard) > 0 {}
+                        while bh_acc_c.pop_slice(&mut bh_discard) > 0 {}
+                        while bh_cons.pop_slice(&mut bh_discard) > 0 {}
+                        while bh_cov_c.pop_slice(&mut bh_discard) > 0 {}
+                        last_seek_ver = accompaniment::ACC_SEEK_VERSION.load(Ordering::Relaxed);
                     }
 
                     // 检测 Seek，清空 RingBuffer，消除延迟
                     let cur_seek_ver = accompaniment::ACC_SEEK_VERSION.load(Ordering::Relaxed);
                     if cur_seek_ver != last_seek_ver {
                         last_seek_ver = cur_seek_ver;
-                        let mut discard = [0.0f32; 1024];
-                        while bh_acc_c.pop_slice(&mut discard) > 0 {}
-                        while bh_cons.pop_slice(&mut discard) > 0 {}
-                        while bh_cov_c.pop_slice(&mut discard) > 0 {}
-                    }
-                    if bh_vocal_buf.len() < mono_frames {
-                        bh_vocal_buf.resize(mono_frames, 0.0);
-                    }
-                    if bh_cover_buf.len() < mono_frames {
-                        bh_cover_buf.resize(mono_frames, 0.0);
+                        while bh_acc_c.pop_slice(&mut bh_discard) > 0 {}
+                        while bh_cons.pop_slice(&mut bh_discard) > 0 {}
+                        while bh_cov_c.pop_slice(&mut bh_discard) > 0 {}
                     }
                     let acc_n = bh_acc_c.pop_slice(&mut bh_acc_buf[..mono_frames]);
                     let vocal_n = bh_cons.pop_slice(&mut bh_vocal_buf[..mono_frames]);
                     let cover_n = bh_cov_c.pop_slice(&mut bh_cover_buf[..mono_frames]);
                     let acc_paused = accompaniment::ACC_PAUSED.load(Ordering::Relaxed);
+                    // 音源模式在回调入口读取一次，避免逐采样读原子
+                    let cover_enabled =
+                        crate::audio_engine::AUDIO_SOURCE.load(Ordering::Relaxed) == 1;
 
                     mixer::mix_bh_monitor(
                         frames,
@@ -1217,6 +843,7 @@ pub fn start_live_engine(
                         vocal_n,
                         &bh_cover_buf,
                         cover_n,
+                        cover_enabled,
                         &mut bh_vocal_smoother,
                         &mut bh_cover_smoother,
                         data,
@@ -1244,7 +871,7 @@ pub fn start_live_engine(
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
-        *active_flag_post.write().await = true;
+        *phase_post.write().await = crate::state::LivePhase::Running;
     });
     emit_progress(&app_handle, 100, "引擎已就绪");
     let _ = app_handle.emit("live-singing-ready", ());
@@ -1254,8 +881,160 @@ pub fn start_live_engine(
     running.store(false, Ordering::SeqCst);
 
     rt.block_on(async {
-        *active_flag_post.write().await = false;
+        *phase_post.write().await = crate::state::LivePhase::Idle;
     });
     emit_log(&app_handle, "[引擎] 已停止");
     Ok(())
+}
+
+/// 启动歌词推送线程（独立生命周期，不受引擎启停影响）
+/// 只会启动一次（由 LYRICS_THREAD_SPAWNED 保证）
+pub fn spawn_lyrics_thread(app_handle: &tauri::AppHandle) {
+    use std::sync::atomic::Ordering;
+    use crate::audio_engine::accompaniment;
+
+    if accompaniment::LYRICS_THREAD_SPAWNED.swap(true, Ordering::SeqCst) {
+        return; // 已启动，不重复创建
+    }
+
+    let app = app_handle.clone();
+    std::thread::spawn(move || {
+        use crate::audio_engine::lrc::LrcData;
+        let mut current_lrc: Option<LrcData> = None;
+        let mut last_lrc_version: usize = 0;
+        let mut prev_index: isize = -3;
+        let mut tick: u32 = 0;
+
+        let mut last_status = "stopped";
+        let mut last_source = 99;
+        let mut last_loaded = false;
+        let mut last_song_ver: usize = 0;
+
+        // 启动时从 LRC_PATH 加载已有歌词
+        let init_path = accompaniment::get_lrc_path();
+        if !init_path.is_empty() {
+            match std::fs::read_to_string(&init_path) {
+                Ok(content) => {
+                    let parsed = LrcData::parse(&content);
+                    if !parsed.is_empty() {
+                        let n = parsed.len();
+                        current_lrc = Some(parsed);
+                        emit_log(&app, &format!("[歌词] 加载: {} 行", n));
+                        // 通知前端预览
+                        let _ = app.emit("lyrics-preview", serde_json::json!({
+                            "lines": current_lrc.as_ref().map(|l| {
+                                l.lines.iter().map(|ln| serde_json::json!({
+                                    "time_secs": ln.time_secs,
+                                    "text": ln.text,
+                                })).collect::<Vec<_>>()
+                            }).unwrap_or_default(),
+                        }));
+                    }
+                }
+                Err(e) => emit_log(&app, &format!("[歌词] 初始加载失败: {}", e)),
+            }
+            last_lrc_version = accompaniment::LRC_VERSION.load(Ordering::Relaxed);
+        }
+
+        // ⚠️ 使用 LYRICS_RUNNING 控制生命周期，而非引擎的 running 标志
+        while accompaniment::LYRICS_RUNNING.load(Ordering::SeqCst) {
+            tick += 1;
+
+            // ⚠️ SONG_VERSION 检测（换歌/停止），强制下一帧发送完整状态
+            let cur_song_ver = accompaniment::SONG_VERSION.load(Ordering::Relaxed);
+            if cur_song_ver != last_song_ver {
+                last_song_ver = cur_song_ver;
+                prev_index = -3;
+                last_status = "force-send";
+            }
+
+            let cur_version = accompaniment::LRC_VERSION.load(Ordering::Relaxed);
+            if cur_version != last_lrc_version {
+                last_lrc_version = cur_version;
+                let cur_path = accompaniment::get_lrc_path();
+                current_lrc = None;
+                prev_index = -3;
+
+                if !cur_path.is_empty() {
+                    match std::fs::read_to_string(&cur_path) {
+                        Ok(content) => {
+                            let parsed = LrcData::parse(&content);
+                            if !parsed.is_empty() {
+                                let n = parsed.len();
+                                current_lrc = Some(parsed);
+                                emit_log(&app, &format!("[歌词] 加载: {} 行", n));
+                            }
+                        }
+                        Err(e) => emit_log(&app, &format!("[歌词] 读取失败: {}", e)),
+                    }
+                } else {
+                    emit_log(&app, "[歌词] 已清除");
+                }
+            }
+
+            // 从引擎全局读取当前状态
+            let pb = accompaniment::PLAYBACK_COUNTER.load(Ordering::Relaxed);
+            let acc_paused = accompaniment::ACC_PAUSED.load(Ordering::Relaxed);
+            let source = crate::audio_engine::AUDIO_SOURCE.load(Ordering::Relaxed);
+            let has_audio = accompaniment::has_audio();
+
+            let status = if !has_audio {
+                "stopped"
+            } else if acc_paused {
+                "paused"
+            } else {
+                "playing"
+            };
+            let loaded = has_audio;
+
+            let (current_text, total_secs, current_idx) = if let Some(ref data) = current_lrc {
+                let pos_secs = pb as f64 / 48000.0;
+                let (ci, _ni) = data.find_line_at(pos_secs);
+                let text = if ci >= 0 { data.lines.get(ci as usize).map(|l| l.text.clone()).unwrap_or_default() } else { String::new() };
+                let dur = data.total_duration_secs();
+                (text, dur, ci)
+            } else {
+                (String::new(), 0.0, -1)
+            };
+
+            let progress_secs = pb as f64 / 48000.0;
+
+            let status_changed = status != last_status;
+            let source_changed = source != last_source;
+            let loaded_changed = loaded != last_loaded;
+            let lrc_line_changed = current_idx != prev_index;
+            let play_tick = status == "playing" && tick % 2 == 0;
+
+            let should_emit = status_changed || source_changed || loaded_changed || lrc_line_changed || play_tick;
+
+            if should_emit {
+                prev_index = current_idx;
+                last_status = status;
+                last_source = source;
+                last_loaded = loaded;
+
+                let _ = app.emit("player-state", serde_json::json!({
+                    "status": status,
+                    "loaded": loaded,
+                    "audio_source": source,
+                    "progress_secs": progress_secs,
+                    "current_line": current_text,
+                    "current_line_index": current_idx,
+                    "total_lines": current_lrc.as_ref().map_or(0, |d| d.len()) as u32,
+                    "total_duration_secs": total_secs,
+                    "preview_lines": current_lrc.as_ref().map(|l| {
+                        l.lines.iter().map(|ln| serde_json::json!({
+                            "time_secs": ln.time_secs,
+                            "text": ln.text,
+                        })).collect::<Vec<_>>()
+                    }).unwrap_or_default(),
+                    "instrumental_path": accompaniment::get_current_instrumental_path(),
+                    "lrc_path": accompaniment::get_current_lrc_path(),
+                    "cover_path": accompaniment::get_current_cover_path(),
+                }));
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    });
 }

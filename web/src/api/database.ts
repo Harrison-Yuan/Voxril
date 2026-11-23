@@ -5,7 +5,6 @@ export interface ExperimentConfigDTO {
   sr: string
   if_f0: boolean
   trainset_dir: string
-  spk_id: number
   gpus: string
   np_process: number
   f0_method: string
@@ -13,11 +12,7 @@ export interface ExperimentConfigDTO {
   total_epoch: number
   batch_size: number
   if_save_latest: boolean
-  if_cache_gpu: boolean
   if_save_every_weights: boolean
-  version: string
-  created_at?: number
-  updated_at?: number
 }
 
 export interface TrainingHistoryDTO {

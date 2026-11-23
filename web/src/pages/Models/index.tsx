@@ -9,6 +9,10 @@ import { inferApi } from '@/api/infer'
 import type { BaseModelStatus as BaseModelStatusType } from '@/api/infer'
 import { workspaceApi } from '@/api/workspace'
 import { useModelDownloadStore } from '@/store/modelDownloadStore'
+import { trainApi } from '@/pages/Train/services/trainApi'
+import type { ExperimentSummary } from '@/pages/Train/services/trainApi'
+import { BatchTable, formatRunDate } from '@/pages/Train/components/BatchTable'
+import { formatBytes } from '@/lib/formatBytes'
 
 const { Title, Text } = Typography
 
@@ -23,6 +27,49 @@ interface ModelItem {
   icon: string
   statusText: string
   statusColor: string
+  /** 仅声音模型：批次摘要副标题 */
+  subtitle?: string
+}
+
+/** 归档权重名：`<voice>-<run_id>-e<epoch>.pth` */
+const ARCHIVE_RE = /(\d{6}-\d{4}(?:-\d+)?)-e(\d+)\.pth$/
+
+interface VoiceModelInfo {
+  voice: string
+  /** 去重后的批次号 */
+  batches: string[]
+  /** 归档权重中的最大 epoch */
+  latestEpoch: number | null
+  /** 是否存在旧布局（未归档）模型 */
+  hasLegacy: boolean
+}
+
+/** 把 `list_models` 的路径列表汇总为"按声音分组的批次摘要"。 */
+function summarizeVoices(list: string[]): VoiceModelInfo[] {
+  const map = new Map<string, VoiceModelInfo>()
+  for (const model of list) {
+    const parts = model.split('/').filter(Boolean)
+    if (parts.length === 0) continue
+    const voice = parts[0]
+    const info = map.get(voice) ?? { voice, batches: [], latestEpoch: null, hasLegacy: false }
+    if (model.includes('/weights/')) {
+      const fname = parts[parts.length - 1]
+      const hit = fname.match(ARCHIVE_RE)
+      if (hit) {
+        if (!info.batches.includes(hit[1])) info.batches.push(hit[1])
+        const epoch = parseInt(hit[2], 10)
+        if (Number.isFinite(epoch) && (info.latestEpoch === null || epoch > info.latestEpoch)) {
+          info.latestEpoch = epoch
+        }
+      } else {
+        info.hasLegacy = true
+      }
+    } else {
+      info.hasLegacy = true
+    }
+    map.set(voice, info)
+  }
+  return Array.from(map.values()).sort((a, b) => a.voice.localeCompare(b.voice))
 }
 
 const BASE_MODEL_META: Record<string, { name: string; icon: string; desc: string }> = {
@@ -38,7 +85,9 @@ const BASE_MODEL_META: Record<string, { name: string; icon: string; desc: string
 }
 
 export default function ModelsPage() {
-  const [models, setModels] = useState<string[]>([])
+  const [voiceInfos, setVoiceInfos] = useState<VoiceModelInfo[]>([])
+  /** 全部批次摘要，用于按声音展开批次明细。 */
+  const [experiments, setExperiments] = useState<ExperimentSummary[]>([])
   const [loading, setLoading] = useState(false)
   const [baseModels, setBaseModels] = useState<BaseModelStatusType[]>([])
   const [baseModelsLoading, setBaseModelsLoading] = useState(false)
@@ -70,18 +119,15 @@ export default function ModelsPage() {
     setLoading(true)
     setBaseModelsLoading(true)
     try {
-      const [modelsList, , baseStatus, paths] = await Promise.all([
+      const [modelsList, , baseStatus, paths, runs] = await Promise.all([
         inferApi.listModels(),
         workspaceApi.getWorkspace(),
         inferApi.getBaseModelsStatus(),
         inferApi.getModelStoragePaths(),
+        trainApi.listExperiments(),
       ])
-      const rootModels = new Set<string>()
-      modelsList.forEach(m => {
-        const parts = m.split('/')
-        if (parts.length > 0) rootModels.add(parts[0])
-      })
-      setModels(Array.from(rootModels).sort())
+      setVoiceInfos(summarizeVoices(modelsList))
+      setExperiments(runs)
       setBaseModels(baseStatus)
       setStoragePaths(paths)
     } catch {
@@ -90,6 +136,25 @@ export default function ModelsPage() {
       setLoading(false)
       setBaseModelsLoading(false)
     }
+  }
+
+  /** 声音 → 去重后的批次（最新在前；旧布局版本目录不算批次）。 */
+  const batchesByVoice = useMemo(() => {
+    const map = new Map<string, ExperimentSummary[]>()
+    for (const run of experiments) {
+      if (run.legacy) continue
+      const arr = map.get(run.voice) ?? []
+      arr.push(run)
+      map.set(run.voice, arr)
+    }
+    for (const arr of map.values()) arr.sort((a, b) => b.run_id.localeCompare(a.run_id))
+    return map
+  }, [experiments])
+
+  /** 该声音的"当前模型"指针：默认取最新批次；归档权重永不覆盖，故重训不会让上一版消失。 */
+  const currentRunKey = (voice: string) => {
+    const latest = batchesByVoice.get(voice)?.[0]
+    return latest ? `${voice}/${latest.run_id}` : undefined
   }
 
   // Build unified model list
@@ -115,24 +180,34 @@ export default function ModelsPage() {
       })
     }
 
-    // User voice models
-    for (const m of models) {
+    // User voice models：归档权重所在声音 + 仅有批次、尚未归档的声音
+    const voiceNames = new Set(voiceInfos.map(info => info.voice))
+    for (const voice of batchesByVoice.keys()) voiceNames.add(voice)
+
+    for (const voice of Array.from(voiceNames).sort((a, b) => a.localeCompare(b))) {
+      const info = voiceInfos.find(i => i.voice === voice)
+      const batchCount = batchesByVoice.get(voice)?.length ?? info?.batches.length ?? 0
+      const details: string[] = []
+      details.push(batchCount > 0 ? `批次 ${batchCount}` : '无归档批次')
+      if (info?.latestEpoch != null) details.push(`最新 epoch ${info.latestEpoch}`)
+      if (info?.hasLegacy) details.push('含旧版')
       items.push({
-        key: `voice-${m}`,
+        key: `voice-${voice}`,
         type: 'voice',
         category: '声音模型',
-        name: m,
-        path: m,
+        name: voice,
+        path: voice,
         exists: true,
         size_mb: 0,
         icon: '🗣️',
         statusText: '已安装',
         statusColor: 'success',
+        subtitle: details.join(' · '),
       })
     }
 
     return items
-  }, [baseModels, models])
+  }, [baseModels, voiceInfos, batchesByVoice])
 
   const filteredModels = useMemo(() => {
     if (activeTab === 'all') return allModels
@@ -156,6 +231,33 @@ export default function ModelsPage() {
           message.error(`删除失败: ${String(e)}`)
         }
       }
+    })
+  }
+
+  /** 删除批次：工作位 + 归档权重 + 批次清单；被成品引用时后端拒绝。 */
+  const handleDeleteBatch = (batch: ExperimentSummary) => {
+    const qualified = `${batch.voice}/${batch.run_id}`
+    Modal.confirm({
+      title: '确认删除批次',
+      content: (
+        <Space orientation="vertical" size={8}>
+          <Text>确定要删除批次 <Text strong>"{formatRunDate(batch.run_id)}"</Text>（{qualified}）吗？</Text>
+          <Text type="secondary">将删除工作位、归档权重与批次清单，共 {formatBytes(batch.bytes)}。</Text>
+          <Text type="secondary">产物会先移入回收站，7 天后自动清除。已被成品引用的批次无法删除。</Text>
+        </Space>
+      ),
+      okText: '确认删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        const result = await trainApi.purgeRun(qualified)
+        if (!result.ok) {
+          message.error({ content: result.message, duration: 8 })
+          return
+        }
+        message.success({ content: `已删除批次，${formatBytes(result.freedBytes)} 移入回收站`, duration: 6 })
+        await loadAll()
+      },
     })
   }
 
@@ -287,6 +389,11 @@ export default function ModelsPage() {
           {record.type === 'base' && (
             <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', height: 16 }}>
               {BASE_MODEL_META[record.key.replace('base-', '')]?.desc || ''}
+            </div>
+          )}
+          {record.type === 'voice' && record.subtitle && (
+            <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', height: 16 }}>
+              {record.subtitle}
             </div>
           )}
         </div>
@@ -445,6 +552,18 @@ export default function ModelsPage() {
           pagination={false}
           rowKey="key"
           size="small"
+          expandable={{
+            rowExpandable: (record) =>
+              record.type === 'voice' && (batchesByVoice.get(record.name)?.length ?? 0) > 0,
+            expandedRowRender: (record) => (
+              <BatchTable
+                batches={batchesByVoice.get(record.name) ?? []}
+                currentRunKey={currentRunKey(record.name)}
+                onDelete={handleDeleteBatch}
+                showFingerprint
+              />
+            ),
+          }}
         />
       </div>
 

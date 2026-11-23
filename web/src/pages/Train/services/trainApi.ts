@@ -6,9 +6,98 @@ export interface ApiResponse {
   message: string
 }
 
+/** 批次摘要（`list_experiments`）。限定名由 `${voice}/${run_id}` 组成，前端不拼目录。 */
+export interface ExperimentSummary {
+  voice: string
+  run_id: string
+  /** 采样率；旧布局无法解析时为 null */
+  sr: string | null
+  /** 旧布局版本目录（`v2_40k`），不属于批次，仅用于兼容展示 */
+  legacy: boolean
+  /** 训练完成时的最终 epoch；未训练或未完成时为 null */
+  epoch: number | null
+  /** 数据集指纹；清单缺失时为 null */
+  fingerprint: string | null
+  has_model: boolean
+  has_index: boolean
+  /** 批次工作位当前占用字节数 */
+  bytes: number
+}
+
+/** 批次工作位的分阶段体积（`get_run_usage`）。 */
+export interface RunUsage {
+  preprocess: number
+  f0: number
+  feature: number
+  train: number
+  index: number
+  other: number
+  /** 当前仍在盘上、可被回收的字节数 */
+  reclaimable: number
+  /** 该批次已自动回收的累计字节数 */
+  reclaimed: number
+}
+
+export type ManifestStageStatus = 'pending' | 'running' | 'done' | 'stale' | 'reclaimed' | 'failed'
+
+export interface ManifestStage {
+  status: ManifestStageStatus
+  manifest_hash?: string
+  epoch?: number
+  ntotal?: number
+  n_ivf?: number
+  started_at?: number
+  finished_at?: number
+}
+
+/** `run.json` 清单：步骤状态的唯一真源。 */
+export interface RunManifest {
+  run_id: string
+  created_at: number
+  voice: string
+  sr: string
+  version: string
+  if_f0: boolean
+  pipeline_version: string
+  dataset: {
+    source: string
+    fingerprint: string
+    splits: number
+    total_seconds?: number
+  }
+  params?: {
+    epochs: number
+    batch_size: number
+    save_epoch: number
+    f0_method?: string
+    np?: number
+  }
+  stages: {
+    preprocess: ManifestStage
+    f0: ManifestStage
+    feature: ManifestStage
+    train: ManifestStage
+    index: ManifestStage
+  }
+  assets: { kind: string; path: string; bytes: number }[]
+  reclaimable: { bytes: number; reclaimed_at?: number }
+}
+
 export interface TrainIndexResponse extends ApiResponse {}
 
-export interface PreprocessResponse extends ApiResponse {}
+export interface PreprocessResponse extends ApiResponse {
+  /** 实际使用的工作位限定名 `<voice>/<run_id>`，后续步骤必须原样回传 */
+  exp_dir: string
+}
+
+/** 批次删除/回收类命令的统一返回：失败时 message 为后端原因。 */
+export interface ArtifactOpResponse extends ApiResponse {
+  freedBytes: number
+}
+
+export interface RemoveIndexResponse extends ArtifactOpResponse {
+  removed: number
+}
 
 export interface ExtractFeaturesResponse extends ApiResponse {}
 
@@ -21,13 +110,11 @@ export interface TrainConfig {
   np_process: number
   f0_method: string
   if_f0: boolean
-  spk_id: number
   save_epoch: number
   total_epoch: number
   batch_size: number
   if_save_latest: boolean
   gpus: string
-  if_cache_gpu: boolean
   if_save_every_weights: boolean
 }
 
@@ -68,17 +155,31 @@ export const trainApi = {
     }
   },
 
-  async listExperiments(): Promise<string[]> {
+  async listExperiments(): Promise<ExperimentSummary[]> {
     try {
-      const result = await invoke<string[]>('list_experiments')
+      const result = await invoke<ExperimentSummary[]>('list_experiments')
       return result
     } catch {
       return []
     }
   },
 
-  async deleteFile(path: string): Promise<void> {
-    await invoke('delete_file', { path })
+  /** 读取并校准批次清单（磁盘产物 + 指纹），失败时返回 null。 */
+  async getRunManifest(expDir: string): Promise<RunManifest | null> {
+    try {
+      return await invoke<RunManifest>('get_run_manifest', { expDir })
+    } catch {
+      return null
+    }
+  },
+
+  /** 批次工作位的分阶段体积。 */
+  async getRunUsage(expDir: string): Promise<RunUsage | null> {
+    try {
+      return await invoke<RunUsage>('get_run_usage', { expDir })
+    } catch {
+      return null
+    }
   },
 
   async trainIndex(expDir: string): Promise<TrainIndexResponse> {
@@ -99,20 +200,23 @@ export const trainApi = {
     trainsetDir: string,
     expDir: string,
     sr: string,
-    npProcess: number
+    npProcess: number,
+    ifF0: boolean
   ): Promise<PreprocessResponse> {
     try {
-      const result = await invoke<ApiResponse>('preprocess_dataset', {
+      const result = await invoke<PreprocessResponse>('preprocess_dataset', {
         trainsetDir,
         expDir,
         sr,
         npProcess,
+        ifF0,
       })
       return result
     } catch (error) {
       return {
         ok: false,
         message: String(error),
+        exp_dir: '',
       }
     }
   },
@@ -162,13 +266,11 @@ export const trainApi = {
     npProcess: number
     f0Method: string
     ifF0: boolean
-    spkId: number
     saveEpoch: number
     totalEpoch: number
     batchSize: number
     ifSaveLatest: boolean
     gpus: string
-    ifCacheGpu: boolean
     ifSaveEveryWeights: boolean
   }): Promise<TrainModelResponse> {
     try {
@@ -179,13 +281,11 @@ export const trainApi = {
         f0_method: params.f0Method,
         sr: params.sr,
         if_f0: params.ifF0,
-        spk_id: params.spkId,
         save_epoch: params.saveEpoch,
         total_epoch: params.totalEpoch,
         batch_size: params.batchSize,
         if_save_latest: params.ifSaveLatest,
         gpus: params.gpus,
-        if_cache_gpu: params.ifCacheGpu,
         if_save_every_weights: params.ifSaveEveryWeights,
       }
       const result = await invoke<ApiResponse>('train_model', { config })
@@ -292,33 +392,6 @@ export const trainApi = {
     }
   },
 
-  async checkPreprocessStatus(expDir: string): Promise<{
-    preprocess_done: boolean
-    features_done: boolean
-    preprocess_running: boolean
-    features_running: boolean
-    error: string | null
-  }> {
-    try {
-      const result = await invoke<{
-        preprocess_done: boolean
-        features_done: boolean
-        preprocess_running: boolean
-        features_running: boolean
-        error: string | null
-      }>('check_preprocess_status', { expDir })
-      return result
-    } catch {
-      return {
-        preprocess_done: false,
-        features_done: false,
-        preprocess_running: false,
-        features_running: false,
-        error: null,
-      }
-    }
-  },
-
   async getExperimentPath(expDir: string): Promise<{ experimentPath: string }> {
     try {
       const result = await invoke<{ experimentPath: string }>('get_experiment_path', { expDir })
@@ -349,21 +422,46 @@ export const trainApi = {
     }
   },
 
-  async deleteTrainingResult(expDir: string): Promise<ApiResponse> {
+  /** 回收批次一次性产物（R1；deep 时包含预处理中间产物与 G_/D_ 权重）。 */
+  async reclaimRun(expDir: string, deep: boolean): Promise<ArtifactOpResponse> {
     try {
-      const message = await invoke<string>('delete_training_result', { expDir })
-      return { ok: true, message }
+      const result = await invoke<{ freed_bytes: number }>('reclaim_run', { expDir, deep })
+      return { ok: true, message: '', freedBytes: result.freed_bytes }
     } catch (error) {
-      return { ok: false, message: String(error) }
+      return { ok: false, message: String(error), freedBytes: 0 }
     }
   },
 
-  async clearTrainingArtifacts(expDir: string): Promise<ApiResponse> {
+  /** 重置批次工作位：清空全部产物，保留归档权重与批次清单。 */
+  async resetExperiment(expDir: string): Promise<ArtifactOpResponse> {
     try {
-      const message = await invoke<string>('clear_training_artifacts', { expDir })
-      return { ok: true, message }
+      const result = await invoke<{ freed_bytes: number }>('reset_experiment', { expDir })
+      return { ok: true, message: '', freedBytes: result.freed_bytes }
     } catch (error) {
-      return { ok: false, message: String(error) }
+      return { ok: false, message: String(error), freedBytes: 0 }
+    }
+  },
+
+  /** 删除历史批次（归档权重 + 工作位 + 批次清单），被成品引用时后端拒绝。 */
+  async purgeRun(expDir: string): Promise<ArtifactOpResponse> {
+    try {
+      const result = await invoke<{ freed_bytes: number }>('purge_run', { expDir })
+      return { ok: true, message: '', freedBytes: result.freed_bytes }
+    } catch (error) {
+      return { ok: false, message: String(error), freedBytes: 0 }
+    }
+  },
+
+  /** 重建索引前清掉工作位里的旧索引及 sidecar。 */
+  async removeIndexArtifacts(expDir: string): Promise<RemoveIndexResponse> {
+    try {
+      const result = await invoke<{ removed: number; freed_bytes: number }>(
+        'remove_index_artifacts',
+        { expDir }
+      )
+      return { ok: true, message: '', removed: result.removed, freedBytes: result.freed_bytes }
+    } catch (error) {
+      return { ok: false, message: String(error), removed: 0, freedBytes: 0 }
     }
   },
 }

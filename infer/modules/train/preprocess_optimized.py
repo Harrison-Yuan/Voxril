@@ -58,7 +58,9 @@ class PreProcessOptimized:
             min_length=1500,
             min_interval=400,
             hop_size=15,
-            max_sil_kept=500,
+            # 保留静音段：500ms 时切片几乎不含真空白，模型会把"无声"学成
+            # "输出呼吸/底噪"，转换结果在没人声处出现连续背景噪声。
+            max_sil_kept=1500,
         )
         self.sr = sr
         self.bh, self.ah = signal.butter(N=5, Wn=48, btype="high", fs=self.sr)
@@ -66,7 +68,6 @@ class PreProcessOptimized:
         self.overlap = 0.3
         self.tail = self.per + self.overlap
         self.max = 0.9
-        self.alpha = 0.75
         self.exp_dir = exp_dir
         self.gt_wavs_dir = f"{exp_dir}/0_gt_wavs"
         self.wavs16k_dir = f"{exp_dir}/1_16k_wavs"
@@ -110,10 +111,12 @@ class PreProcessOptimized:
         if tmp_max > 2.5 or tmp_max < 1e-6:
             return False
 
-        # Applio 风格混合归一化：避免把每个切片都硬拉到 0.95，降低齿音、削波和噪声被放大的风险。
-        tmp_audio = (tmp_audio / tmp_max * (self.max * self.alpha)) + (1 - self.alpha) * tmp_audio
-        tmp_audio = np.clip(tmp_audio, -0.99, 0.99)
-        
+        # 只对过响的切片下压，绝不上抬。
+        # 上抬会把静音和底噪一起放大到接近满幅当成训练目标，
+        # 模型就学不出"输入没人声 -> 输出接近静音"。
+        if tmp_max > self.max:
+            tmp_audio = tmp_audio * (self.max / tmp_max)
+
         wavfile.write(
             f"{self.gt_wavs_dir}/{idx0}_{idx1}.wav",
             self.sr,

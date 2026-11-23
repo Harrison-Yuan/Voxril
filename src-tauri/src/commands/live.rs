@@ -1,30 +1,19 @@
 use crate::audio_engine::{self, LiveSingingConfig};
-use crate::state::AppState;
+use crate::state::{AppState, LivePhase};
+use crate::workspace_layout::{OutputKind, WorkspaceLayout};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tauri::{Emitter, State};
-
-fn default_mode() -> String { "correct".to_string() }
-fn default_scale_name() -> String { "chromatic".to_string() }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LiveSingingRequest {
     pub input_device: String,
     pub output_device: String,
-    #[serde(default = "default_mode")]
-    pub mode: String,
-    #[serde(default)]
-    pub scale_root: i32,
-    #[serde(default = "default_scale_name")]
-    pub scale_name: String,
-    pub model_path: String,
     pub f0_up_key: i32,
     pub accompaniment_path: String,
     pub cover_path: String,
-    pub duck_gain: f32,
-    pub index_path: Option<String>,
-    #[serde(default)]
-    pub index_rate: f64,
+    /// 歌词文件路径（空串表示该歌曲没有歌词）
+    pub lrc_path: String,
 }
 
 /// 分离歌曲条目（供直播页面选择）
@@ -33,12 +22,9 @@ pub struct SeparatedSong {
     pub name: String,                      // 歌曲名
     pub instrumental_path: String,         // 伴奏路径
     pub vocal_path: String,                // 人声路径
-    pub f0_path: String,                   // F0 谱子路径
-    pub f0_exists: bool,                   // F0 是否已提取
     pub lrc_exists: bool,                  // 歌词是否已提取
     pub lrc_path: String,                  // 歌词路径（可直接读取）
     pub converted_path: String,            // 已转换的人声路径（RVC 合成结果）
-    pub stft_exists: bool,                 // STFT 相位模板是否已导出
 }
 
 /// 从文件名中去掉常见前缀，提取歌曲名
@@ -56,8 +42,9 @@ fn extract_song_name(filename: &str) -> &str {
 #[tauri::command]
 pub async fn list_separated_songs(state: State<'_, AppState>) -> Result<Vec<SeparatedSong>, String> {
     let workspace = state.workspace_root.read().await;
-    let ins_dir = workspace.join("separated/instrumental");
-    let vocal_dir = workspace.join("separated/vocals");
+    let datasets_dir = WorkspaceLayout::detect(&*workspace).datasets_root();
+    let ins_dir = datasets_dir.join("instrumental");
+    let vocal_dir = datasets_dir.join("vocals");
 
     if !ins_dir.is_dir() || !vocal_dir.is_dir() {
         eprintln!("[list_separated_songs] 目录不存在: ins={} vocal={}", ins_dir.display(), vocal_dir.display());
@@ -112,13 +99,11 @@ pub async fn list_separated_songs(state: State<'_, AppState>) -> Result<Vec<Sepa
                 vocal_dir.join(format!("vocal_{}.wav", song_name))
             };
 
-            let f0_path = vocal_dir.join(format!("vocal_{}.f0.json", song_name));
-
             // 查找已转换的人声（converted/ 目录）
-            // 转换输出格式: {source_stem}_{模型名}_key{转调}_{时间戳}.wav
-            // source_stem 通常是 vocal_{歌名}，文件名一定包含 {歌名} 子串
-            let converted_dir = workspace.join("converted");
-            let (converted_path, stft_exists) = if let Ok(entries) = std::fs::read_dir(&converted_dir) {
+            // 转换输出格式: {歌名}_{音色}_{批次}_key{转调}_{时分}.wav，歌名已去掉 vocal_ 前缀，
+            // 因此文件名一定包含 {歌名} 子串
+            let converted_dir = WorkspaceLayout::detect(&*workspace).output_dir(OutputKind::Vocal);
+            let converted_path = if let Ok(entries) = std::fs::read_dir(&converted_dir) {
                 // 对每个 wav 文件检查 stem 是否包含歌名
                 // 不依赖 regex，直接 contains 匹配更可靠
                 let mut matched: Vec<_> = entries.flatten()
@@ -143,22 +128,18 @@ pub async fn list_separated_songs(state: State<'_, AppState>) -> Result<Vec<Sepa
                 });
                 match matched.into_iter().next() {
                     Some(e) => {
-                        let epath = e.path();
-                        let cpath = epath.to_string_lossy().to_string();
+                        let cpath = e.path().to_string_lossy().to_string();
                         eprintln!("[list_separated_songs] ✅ 匹配到翻唱: {} (song={})", cpath, song_name);
-                        let stem_os = epath.file_stem().unwrap_or_default();
-                        let stem = stem_os.to_str().unwrap_or(&song_name);
-                        let stft = converted_dir.join(format!("{}.stft.npy", stem));
-                        (cpath, stft.exists())
+                        cpath
                     }
                     None => {
                         eprintln!("[list_separated_songs] ⚠️ converted/ 目录无匹配: song={}", song_name);
-                        (String::new(), false)
+                        String::new()
                     }
                 }
             } else {
                 eprintln!("[list_separated_songs] ⚠️ converted/ 目录不存在: {}", converted_dir.display());
-                (String::new(), false)
+                String::new()
             };
 
             let lrc_path = vocal_dir.join(format!("vocal_{}.lrc", song_name));
@@ -168,12 +149,9 @@ pub async fn list_separated_songs(state: State<'_, AppState>) -> Result<Vec<Sepa
                 name: song_name.clone(),
                 instrumental_path: path.to_string_lossy().to_string(),
                 vocal_path: vocal_path.to_string_lossy().to_string(),
-                f0_path: f0_path.to_string_lossy().to_string(),
-                f0_exists: f0_path.exists(),
                 lrc_exists,
                 lrc_path: lrc_path_str,
                 converted_path,
-                stft_exists,
             });
         }
     }
@@ -190,81 +168,26 @@ pub async fn start_live_singing(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    eprintln!("[RUST] start_live_singing 命令被调用，mode={}", request.mode);
+    eprintln!("[RUST] start_live_singing 命令被调用");
 
-    // ⚠️ 抢先停止：如果之前有引擎未完全退出，确保它先停掉再启动新的。
-    // 防止两个引擎实例同时操作 CoreAudio 导致设备格式冲突。
+    // 状态机仲裁：仅 Idle 可启动，避免两个引擎实例同时操作 CoreAudio
     {
-        let stop_tx = state.live_singing_stop.lock().await.take();
-        if let Some(stop_tx) = stop_tx {
-            eprintln!("[RUST] 发现残留引擎，正在停止...");
-            let _ = stop_tx.send(());
-            // 等待引擎完全退出（等 active 变 false），最多 3 秒
-            for _ in 0..100 {
-                if !*state.live_singing_active.read().await {
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        let phase_now = *state.live_singing_phase.read().await;
+        match phase_now {
+            LivePhase::Idle => {}
+            LivePhase::Stopping => {
+                return Err("直播引擎正在停止，请稍后重试".into());
             }
-            *state.live_singing_active.write().await = false;
-            eprintln!("[RUST] 残留引擎已停止");
+            LivePhase::Starting | LivePhase::Running => {
+                return Err("直播唱歌引擎已在运行中".into());
+            }
         }
     }
-
-    let active = state.live_singing_active.write().await;
-    if *active {
-        return Err("直播唱歌引擎已在运行中".into());
-    }
+    // 清理可能的残留停止信号（Idle 时理论上为空）
+    let _ = state.live_singing_stop.lock().await.take();
+    *state.live_singing_phase.write().await = LivePhase::Starting;
 
     let data_dir = state.data_dir.clone();
-    let workspace_root = state.workspace_root.read().await;
-
-    // 修音模式不需要模型路径解析
-    let model_path = String::new();
-
-    // ContentVec 特征模型 — 修音模式不需要
-    let vec_path = String::new();
-
-    // 先保存工作目录路径，后面还要用
-    let workspace_str = workspace_root.to_string_lossy().to_string();
-    drop(workspace_root);
-
-    // 自动解析 F0 路径：如果 accompaniment 在 separated/instrumental 下，
-    // 自动从 separated/vocals 找同名 .f0.json
-    let f0_score_path = {
-        let ins_path = std::path::Path::new(&request.accompaniment_path);
-        if ins_path.exists() && !request.accompaniment_path.is_empty() {
-            let ws = std::path::Path::new(&workspace_str);
-            let vocal_dir = ws.join("separated/vocals");
-            // 取文件名，把 "instrumental_" 替换为 "vocal_"
-            let fname = ins_path.file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("");
-            let vocal_fname = fname
-                .replacen("instrumental_", "vocal_", 1)
-                .replacen("instrument_", "vocal_", 1);
-            // vocal_枪火.flac → vocal_枪火.f0.json
-            let vocal_fname_noext = vocal_fname
-                .rsplit_once('.')
-                .map(|(name, _)| name)
-                .unwrap_or(&vocal_fname);
-            let f0_candidate = vocal_dir.join(format!("{}.f0.json", vocal_fname_noext));
-            let f0_local = ins_path.with_extension("f0.json");
-            if f0_candidate.exists() {
-                f0_candidate.to_string_lossy().to_string()
-            } else if f0_local.exists() {
-                f0_local.to_string_lossy().to_string()
-            } else {
-                // 留空：让引擎自动从 accompaniment_path 推断
-                String::new()
-            }
-        } else {
-            String::new()
-        }
-    };
-
-    // 修音模式不需要 Index（特征检索），设为空
-    let index_path = String::new();
 
     let rmvpe_path = {
         let candidates = vec![
@@ -285,75 +208,47 @@ pub async fn start_live_singing(
             .to_string_lossy().to_string()
     };
 
-    eprintln!("[LIVE] 解析后 index_path  = {}", index_path);
-    eprintln!("[LIVE] index 文件是否存在 = {}", Path::new(&index_path).exists());
-
-    // Index 文件校验：
-    //   - 修音模式 (correct) 不需要模型/index，跳过校验
-    //   - 训练模型（experiments/ 目录）：强制要求 index，无则拒绝上播
-    //   - 预训练基础模型（pretrained/pretrained_v2 目录）：index 为可选，仅记录警告
-    if request.mode != "correct" {
-        let is_pretrained = model_path.contains("/pretrained");
-        if (index_path.is_empty() || !Path::new(&index_path).exists()) && !is_pretrained {
-            return Err(format!(
-                "所选模型缺少特征索引文件 (added_*.index)。模型与索引应位于同一目录。\n模型路径: {}",
-                model_path
-            ));
-        }
-        if is_pretrained && index_path.is_empty() {
-            eprintln!("[RUST] pretrained 基础模型，无 index 文件，跳过特征检索（仅用 AI 特征）");
-        } else if !index_path.is_empty() {
-            eprintln!("[RUST] 使用 Index 文件: {}", index_path);
-        }
-    }
-
     let config = LiveSingingConfig {
         input_device: request.input_device,
         output_device: request.output_device,
-        mode: request.mode,
-        scale_root: request.scale_root,
-        scale_name: request.scale_name,
-        model_path,
-        vec_path,
         rmvpe_path,
         fcpe_path,
+        lrc_path: request.lrc_path,
         f0_up_key: request.f0_up_key,
         accompaniment_path: request.accompaniment_path,
         cover_path: request.cover_path,
-        f0_score_path,
-        duck_gain: request.duck_gain,
-        index_path,
-        index_rate: request.index_rate,
     };
 
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
     *state.live_singing_stop.lock().await = Some(stop_tx);
-    // 不在这里设置 active——等引擎真正就绪后再设
 
-    // Pass a clone of the active flag so the thread can set/reset it
-    let active_flag = state.live_singing_active.clone();
-    drop(active);
-
+    let phase = state.live_singing_phase.clone();
     let app_handle = app.clone();
 
     std::thread::spawn(move || {
-        eprintln!("[RUST] 引擎线程已启动，开始调用 start_live_engine...");
-        match audio_engine::engine::start_live_engine(config, app_handle.clone(), active_flag.clone(), stop_rx) {
+        eprintln!("[RUST] 引擎线程已启动，停止独立伴奏输出流...");
+        // ⚠️ 先停止独立伴奏输出流，再用引擎接管
+        crate::audio_engine::accompaniment::stop_standalone_output();
+        std::thread::sleep(std::time::Duration::from_millis(200)); // 等 stream 释放
+
+        eprintln!("[RUST] 开始调用 start_live_engine...");
+        let result = audio_engine::engine::start_live_engine(
+            config,
+            app_handle.clone(),
+            phase.clone(),
+            stop_rx,
+        );
+
+        // 线程退出：无论成功失败都回落 Idle，并广播结果
+        tauri::async_runtime::block_on(async {
+            *phase.write().await = LivePhase::Idle;
+        });
+        match result {
             Ok(_) => {
-                // 引擎正常退出（收到 stop）后才走到这里
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async {
-                    *active_flag.write().await = false;
-                });
                 let _ = app_handle.emit("live-singing-stopped", "引擎已停止");
             }
             Err(e) => {
                 eprintln!("[RUST] 引擎启动失败: {}", e);
-                // 引擎启动失败，确保 active=false
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async {
-                    *active_flag.write().await = false;
-                });
                 let _ = app_handle.emit("live-singing-error", format!("引擎启动失败: {}", e));
             }
         }
@@ -371,16 +266,6 @@ pub async fn set_live_f0_up_key(semitones: i32) -> Result<(), String> {
     Ok(())
 }
 
-/// 直播中实时调整特征检索融合比例。
-/// 前端 Slider 拖动时调用，0.0=纯AI特征，1.0=纯检索特征，立即生效。
-#[tauri::command]
-pub async fn set_live_index_rate(rate: f64) -> Result<(), String> {
-    let rate = rate.clamp(0.0, 1.0) as f32;
-    crate::audio_engine::INDEX_RATE.store(f32::to_bits(rate), std::sync::atomic::Ordering::Relaxed);
-    eprintln!("[SET] index_rate = {:.2}", rate);
-    Ok(())
-}
-
 /// 设置音源模式：0=真人演唱，1=AI 翻唱
 /// 内部自动处理 MIC_MUTED 和 cover audible
 #[tauri::command]
@@ -388,28 +273,49 @@ pub async fn set_audio_source(source: u32) -> Result<(), String> {
     let source = if source == 0 { 0 } else { 1 };
     crate::audio_engine::AUDIO_SOURCE.store(source, std::sync::atomic::Ordering::Relaxed);
     crate::audio_engine::MIC_MUTED.store(source == 1, std::sync::atomic::Ordering::Relaxed);
-    eprintln!("[SET] audio_source = {} (真人={}, mic_muted={})", source, source == 0, source == 1);
+    // ⚠️ COVER_PLAYING 与 AUDIO_SOURCE 对齐，确保独立输出流正确混入 cover
+    crate::audio_engine::accompaniment::set_cover_playing(source == 1);
+    eprintln!("[SET] audio_source = {} (真人={}, cover={}, mic_muted={})", source, source == 0, source == 1, source == 1);
     Ok(())
 }
 
 #[tauri::command]
 pub async fn stop_live_singing(state: State<'_, AppState>) -> Result<(), String> {
-    let stop_tx = state.live_singing_stop.lock().await.take();
-    if let Some(stop_tx) = stop_tx {
-        let _ = stop_tx.send(());
-
-        for _ in 0..100 {
-            if !*state.live_singing_active.read().await {
-                return Ok(());
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+    // 幂等：已 Idle 则仅清理残留信号
+    {
+        let phase_now = *state.live_singing_phase.read().await;
+        if phase_now == LivePhase::Idle {
+            let _ = state.live_singing_stop.lock().await.take();
+            converge_playback();
+            return Ok(());
         }
-
-        return Err("正在停止直播引擎，请稍后再试".into());
+        if phase_now != LivePhase::Stopping {
+            *state.live_singing_phase.write().await = LivePhase::Stopping;
+        }
     }
 
-    *state.live_singing_active.write().await = false;
-    Ok(())
+    if let Some(stop_tx) = state.live_singing_stop.lock().await.take() {
+        let _ = stop_tx.send(());
+    }
+
+    // 等待引擎线程真正退出（最多 6 秒）
+    for _ in 0..200 {
+        if *state.live_singing_phase.read().await == LivePhase::Idle {
+            converge_playback();
+            return Ok(());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+    }
+    Err("正在停止直播引擎，请稍后再试".into())
+}
+
+/// 下播收敛：停止独立伴奏输出并复位播放标志，
+/// 避免残留的 paused/ended 状态影响下次开播。
+fn converge_playback() {
+    use std::sync::atomic::Ordering;
+    crate::audio_engine::accompaniment::stop_standalone_output();
+    crate::audio_engine::accompaniment::ACC_PAUSED.store(false, Ordering::Relaxed);
+    crate::audio_engine::accompaniment::ACC_ENDED.store(false, Ordering::Relaxed);
 }
 
 /// 暂停/恢复伴奏播放
@@ -431,7 +337,7 @@ pub async fn get_accompaniment_status() -> Result<bool, String> {
 
 /// 动态加载并播放伴奏（直播中调用，无需重启引擎）
 #[tauri::command]
-pub async fn play_accompaniment(audio_path: String, lrc_path: Option<String>, cover_path: Option<String>, app: tauri::AppHandle) -> Result<(), String> {
+pub async fn play_accompaniment(audio_path: String, lrc_path: Option<String>, cover_path: Option<String>, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     use std::io::BufReader;
 
     let src = std::path::Path::new(&audio_path);
@@ -539,9 +445,21 @@ pub async fn play_accompaniment(audio_path: String, lrc_path: Option<String>, co
         }
     }
 
+    // 存储当前歌曲路径信息（用于同步到桌面歌词窗口）
+    let lrc_path_str = resolved_lrc.as_deref().unwrap_or("");
+    let cover_path_str = cover_path.as_deref().unwrap_or("");
+    crate::audio_engine::accompaniment::set_current_song_paths(&audio_path, lrc_path_str, cover_path_str);
+
     // ⚠️ play_accompaniment 不直接 emit player-state
     // load_audio() 递增 SONG_VERSION，输出回调 drain buffer + reset counter
     // 歌词线程下一 tick 检测到 has_audio()=true，自动发送完整 player-state
+    // 确保歌词线程已启动（独立生命周期，无需引擎运行）
+    crate::audio_engine::engine::spawn_lyrics_thread(&app);
+
+    // 如果引擎未运行（Idle），启动独立伴奏输出流
+    if *state.live_singing_phase.read().await == LivePhase::Idle {
+        crate::audio_engine::accompaniment::start_standalone_output();
+    }
 
     Ok(())
 }
@@ -559,13 +477,8 @@ pub async fn stop_accompaniment(_app: tauri::AppHandle) -> Result<(), String> {
     // clear() 递增 SONG_VERSION + 清空 ACC_AUDIO_GLOBAL
     // 输出回调 drain buffer + reset counter（~21ms）
     // 歌词线程下一 tick 检测到 has_audio()=false → status=stopped → emit
-    Ok(())
-}
-
-/// 设置歌词文件路径（歌词线程自动加载预览，引擎启动前后均可调用）
-#[tauri::command]
-pub async fn set_lrc_path(lrc_path: String) -> Result<(), String> {
-    crate::audio_engine::accompaniment::set_lrc_path(lrc_path);
+    // 停止独立伴奏输出流（引擎未运行时）
+    crate::audio_engine::accompaniment::stop_standalone_output();
     Ok(())
 }
 
@@ -616,6 +529,27 @@ pub async fn play_current_accompaniment(app: tauri::AppHandle) -> Result<(), Str
     Ok(())
 }
 
+/// 获取当前播放状态（用于桌面歌词等子窗口挂载时获取初始状态）
+#[tauri::command]
+pub async fn get_player_state() -> Result<serde_json::Value, String> {
+    use std::sync::atomic::Ordering;
+    let has_audio = crate::audio_engine::accompaniment::has_audio();
+    let acc_paused = crate::audio_engine::accompaniment::ACC_PAUSED.load(Ordering::Relaxed);
+    let source = crate::audio_engine::AUDIO_SOURCE.load(Ordering::Relaxed);
+    let pb = crate::audio_engine::accompaniment::PLAYBACK_COUNTER.load(Ordering::SeqCst);
+
+    let status = if !has_audio { "stopped" } else if acc_paused { "paused" } else { "playing" };
+
+    Ok(serde_json::json!({
+        "status": status,
+        "audio_source": source,
+        "progress_secs": pb as f64 / 48000.0,
+        "instrumental_path": crate::audio_engine::accompaniment::get_current_instrumental_path(),
+        "lrc_path": crate::audio_engine::accompaniment::get_current_lrc_path(),
+        "cover_path": crate::audio_engine::accompaniment::get_current_cover_path(),
+    }))
+}
+
 /// 跳转伴奏播放进度到指定秒数
 #[tauri::command]
 pub async fn seek_accompaniment(position_secs: f64, app: tauri::AppHandle) -> Result<(), String> {
@@ -644,8 +578,8 @@ pub async fn seek_accompaniment(position_secs: f64, app: tauri::AppHandle) -> Re
 
 #[tauri::command]
 pub async fn get_live_singing_status(state: State<'_, AppState>) -> Result<bool, String> {
-    let active = *state.live_singing_active.read().await;
-    Ok(active)
+    let phase = *state.live_singing_phase.read().await;
+    Ok(phase == LivePhase::Running)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -665,7 +599,7 @@ pub async fn list_live_models(state: State<'_, AppState>) -> Result<Vec<ModelEnt
     let data_dir = state.data_dir.clone();
     let workspace_root = state.workspace_root.read().await;
 
-    let exp_root = workspace_root.join("experiments");
+    let exp_root = WorkspaceLayout::detect(&*workspace_root).assets_root();
 
     // 1. 扫描 ContentVec / HuBERT 特征模型 (.onnx)
     for dir in &[data_dir.join("assets/hubert")] {
@@ -845,198 +779,6 @@ print("[DONE] 导出完成")
     }
 
     Ok(())
-}
-
-// ─── F0 音高预提取 ───
-
-/// F0 音高曲线响应（供前端展示）。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct F0ProfilePayload {
-    pub f0_curve: Vec<f32>,
-    pub sample_rate: u32,
-    pub hop_length: usize,
-    pub duration_secs: f32,
-    pub frame_count: usize,
-    pub json_path: String,
-}
-
-#[tauri::command]
-pub async fn extract_f0_profile(
-    audio_path: String,
-    app: tauri::AppHandle,
-    state: State<'_, AppState>,
-) -> Result<F0ProfilePayload, String> {
-    let src = Path::new(&audio_path);
-    if !src.exists() {
-        return Err(format!("音频文件不存在: {}", audio_path));
-    }
-
-    // 输出 JSON 路径：与音频同目录，后缀 .f0.json
-    let json_path = src.with_extension("f0.json");
-    let json_str = json_path.to_string_lossy().to_string();
-
-    // 如果已存在且比音频新，直接读取返回
-    if json_path.exists() {
-        if let Ok(src_meta) = src.metadata() {
-            if let Ok(json_meta) = json_path.metadata() {
-                if let (Ok(src_mtime), Ok(json_mtime)) = (src_meta.modified(), json_meta.modified()) {
-                    if json_mtime >= src_mtime {
-                        let content = tokio::fs::read_to_string(&json_path).await
-                            .map_err(|e| format!("读取已有 F0 Profile 失败: {}", e))?;
-                        let profile: crate::audio_engine::types::F0Profile = serde_json::from_str(&content)
-                            .map_err(|e| format!("解析 F0 Profile JSON 失败: {}", e))?;
-                        let frame_count = profile.f0_curve.len();
-                        let duration_secs = profile.duration_secs();
-                        return Ok(F0ProfilePayload {
-                            f0_curve: profile.f0_curve,
-                            sample_rate: profile.sample_rate,
-                            hop_length: profile.hop_length,
-                            duration_secs,
-                            frame_count,
-                            json_path: json_str,
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    let _ = app.emit("live-singing-log", "[F0] 开始提取原唱 F0 音高曲线（Rust ONNX 引擎）...");
-    let _ = app.emit("live-singing-progress", serde_json::json!({"percent": 0, "message": "正在用 RMVPE 提取原唱 F0 音高曲线..."}));
-
-    let data_dir = state.data_dir.clone();
-    let json_path_clone = json_path.clone();
-
-    // ── Rust 原生 F0 提取（替代 Python 子进程） ──
-    let profile = tokio::task::spawn_blocking(move || {
-        // 1. 定位 RMVPE ONNX 模型
-        let mut rmvpe_path = data_dir.join("assets").join("rmvpe").join("rmvpe.onnx");
-        if !rmvpe_path.exists() {
-            rmvpe_path = data_dir.join("assets").join("rmvpe").join("rmvpe.pt");
-        }
-        if !rmvpe_path.exists() {
-            return Err(format!("RMVPE 模型不存在: {}", rmvpe_path.display()));
-        }
-
-        // 2. 加载 RMVPE ONNX session
-        let rmvpe = crate::audio_engine::rvc::build_session(
-            &rmvpe_path.to_string_lossy()
-        ).map_err(|e| format!("RMVPE 加载失败: {}", e))?;
-        let mut rmvpe = rmvpe;
-
-        // 3. 用 decode-audio 加载音频为 48kHz f32 PCM
-        //    优先使用当前可执行文件路径（兼容 cargo run 和 bundle 两种场景）
-        let bin_path = std::env::var("VOXRIL_BIN")
-            .unwrap_or_else(|_| {
-                std::env::current_exe()
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_else(|_| "voxril".into())
-            });
-        let output = std::process::Command::new(&bin_path)
-            .args(&["decode-audio", "--input", &audio_path, "--sr", "48000"])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .output()
-            .map_err(|e| format!("decode-audio 调用失败: {}", e))?;
-        if !output.status.success() {
-            return Err(format!("decode-audio 失败 (exit={})", output.status));
-        }
-
-        // f32 LE PCM
-        let audio_48k: Vec<f32> = output.stdout.chunks_exact(4)
-            .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-            .collect();
-
-        let dur = audio_48k.len() as f64 / 48000.0;
-        eprintln!("[F0] Rust 加载: {:.1}s, {} samps @ 48kHz", dur, audio_48k.len());
-
-        // 4. 运行 RMVPE 推理
-        use crate::audio_engine::rvc::extract_f0_from_file;
-        let profile = extract_f0_from_file(&audio_48k, &mut rmvpe);
-
-        // 5. 写 JSON
-        let json = serde_json::to_string(&profile)
-            .map_err(|e| format!("序列化 F0 Profile 失败: {}", e))?;
-        std::fs::write(&json_path_clone, &json)
-            .map_err(|e| format!("写 F0 Profile 文件失败: {}", e))?;
-
-        let n_nonzero = profile.f0_curve.iter().filter(|&&v| v > 0.0).count();
-        let mean_f0 = if n_nonzero > 0 {
-            profile.f0_curve.iter().filter(|&&v| v > 0.0).sum::<f32>() / n_nonzero as f32
-        } else { 0.0 };
-        eprintln!("[F0] Rust RMVPE 完成: {} 帧, {} 有声帧, 均值={:.1}Hz",
-            profile.f0_curve.len(), n_nonzero, mean_f0);
-
-        Ok(profile)
-    }).await.map_err(|e| format!("spawn_blocking 失败: {}", e))?
-    .map_err(|e| format!("F0 提取失败: {}", e))?;
-
-    let _ = app.emit("live-singing-log", "[F0] F0 Profile 提取完成 (Rust ONNX)");
-    let _ = app.emit("live-singing-progress", serde_json::json!({"percent": 100, "message": "F0 Profile 提取完成"}));
-
-    let frame_count = profile.f0_curve.len();
-    let duration_secs = profile.duration_secs();
-    Ok(F0ProfilePayload {
-        f0_curve: profile.f0_curve,
-        sample_rate: profile.sample_rate,
-        hop_length: profile.hop_length,
-        duration_secs,
-        frame_count,
-        json_path: json_str,
-    })
-}
-
-/// 根据音色模型路径，在同目录下查找 *.index 文件。
-/// 训练生成的索引与 ONNX 模型在同一目录，直接 glob_files 即可找到。
-/// 返回 None 表示该模型目录下没有 index 文件。
-#[tauri::command]
-pub async fn get_model_index_path(model_path: String) -> Result<Option<String>, String> {
-    let p = std::path::Path::new(&model_path);
-    let dir = p.parent().filter(|d| d.is_dir());
-    match dir {
-        Some(d) => {
-            let files = crate::utils::glob_files(d, "index").unwrap_or_default();
-            Ok(files.into_iter().last().map(|p| p.to_string_lossy().to_string()))
-        }
-        None => Ok(None),
-    }
-}
-
-/// 导出 STFT 相位模板：为已合成的人声音频生成 .stft.npy 文件。
-/// 直播修音时 Phase Vocoder 用此模板抑制 phasiness 失真。
-#[tauri::command]
-pub async fn export_stft_template(
-    audio_path: String,
-    _state: State<'_, AppState>,
-) -> Result<String, String> {
-    let src = Path::new(&audio_path);
-    if !src.exists() {
-        return Err(format!("音频文件不存在: {}", audio_path));
-    }
-
-    let stft_path = src.with_extension("stft.npy");
-    let stft_str = stft_path.to_string_lossy().to_string();
-    let stft_path_clone = stft_path.clone();
-    let audio_path_clone = audio_path.clone();
-
-    // 如果已存在且比音频新，直接返回
-    if stft_path.exists() {
-        if let (Ok(src_m), Ok(stft_m)) = (src.metadata(), stft_path.metadata()) {
-            if let (Ok(src_t), Ok(stft_t)) = (src_m.modified(), stft_m.modified()) {
-                if stft_t >= src_t {
-                    return Ok(stft_str);
-                }
-            }
-        }
-    }
-
-    tokio::task::spawn_blocking(move || {
-        crate::audio_engine::pitch_correction::export_stft_to_file(
-            std::path::Path::new(&audio_path_clone),
-            std::path::Path::new(&stft_path_clone),
-        )?;
-        Ok(stft_str)
-    }).await.map_err(|e| e.to_string())?
 }
 
 /// 歌词提取结果

@@ -4,7 +4,7 @@
 
 **Turn any song into a cover sung in your own voice — entirely offline.**
 
-Pick a song, split it into vocals and instrumental, swap the vocals for a voice you like, and put it back together as a finished cover file. Everything runs on your Mac — no cloud, no account, no subscription.
+Pick a voice, pick a song, click once. Voxril splits the song, swaps the vocals for your voice and puts the track back together as a finished cover file. Everything runs on your Mac — no cloud, no account, no subscription.
 
 <p>
   <a href="https://github.com/Harrison-Yuan/Voxril/releases">
@@ -30,7 +30,7 @@ Pick a song, split it into vocals and instrumental, swap the vocals for a voice 
 </div>
 
 <p align="center">
-  <img src="docs/screenshots/voice-conversion.jpg" alt="Voxril voice conversion screen" width="900">
+  <img src="docs/screenshots/one-click-cover.jpg" alt="Voxril one-click cover screen" width="900">
 </p>
 
 ```
@@ -41,39 +41,56 @@ You don't need to understand the AI. Every screen has one obvious button, and an
 
 ---
 
-## 🎬 Three steps to your first cover
+## 🎬 Your first cover
 
-About five minutes, and you don't need to train anything first.
+Voxril opens on **一键翻唱 (Cover)**. One button runs the whole pipeline: separate the vocals, convert them to your voice, merge the track back together.
 
-### Step 1 · Split the song
+**You need one voice first** — either [train your own](#-make-it-sound-like-you) from 10–30 minutes of recordings, or import a `G_*.pth` in **模型管理 (Models)**. After that, every new song is one click.
 
-Go to **人声分离 (Separate)** → click the file button and pick your song → click **开始分离**.
+1. **① Choose a voice** — click one of the voice cards at the top.
+2. **② Choose the song** — click **选择原唱歌曲** and pick an `mp3`, `wav`, `flac`, `m4a`…
+3. **③ Click 一键生成翻唱** — the progress card walks through the three stages as they run.
 
-You get two halves: `vocals` (voice only) and `instrumental` (music only), both in your workspace.
+When it finishes, the cover appears in the **翻唱作品** card with a player. It is also listed in **作品列表**, where you can star it, **定稿** (move it to the permanent `outputs/final` folder) or delete it (moved to a trash folder and purged after 7 days).
+
+Optional **生成配置** opens the tuning drawer: transpose, pitch method, retrieval ratio and vocal level. Settings are saved per voice; most people never need to touch them.
+
+<details>
+<summary><b>Prefer to run each stage yourself? (advanced mode)</b></summary>
+
+The top bar's **高级模式 (Advanced)** menu holds the manual steps: **人声分离 (Separate)** and **语音转换 (Convert)**.
+
+### 1 · Split the song
+
+Open **人声分离** → click the file button and pick your song → click **开始分离**. You get two halves: `vocals` (voice only) and `instrumental` (music only), both in your workspace.
 
 <p align="center">
   <img src="docs/screenshots/vocal-separation.jpg" alt="Separate a song into vocals and instrumental" width="760">
 </p>
 
-### Step 2 · Swap the voice
+### 2 · Swap the voice
 
-Go to **语音转换 (Convert)**:
+Open **语音转换**:
 
 | Field | What to do |
 |---|---|
 | 声音模型 | Pick any voice from the list |
-| 音频文件 | Choose the vocal file produced in step 1 |
+| 音频文件 | Choose the `vocals` file produced in step 1 |
 | Everything else | **Leave it alone** — the defaults are fine |
 
-Click **开始转换** and wait. The converted vocals land in the `converted` folder.
+Click **开始转换** and wait.
 
-### Step 3 · Put it back on the music
+<p align="center">
+  <img src="docs/screenshots/voice-conversion.jpg" alt="Voice conversion screen" width="760">
+</p>
 
-Stay on the same page, scroll down and expand **合成伴奏 (Merge)** → click **合成**.
+### 3 · Put it back on the music
 
-The finished cover is written to the `mixed` folder as `merged_....wav`. Double-click it to listen, and that's the file you share.
+Scroll down on the same page and expand **合成作品 (Merge)** → click **合成**. The finished cover lands in the output library.
 
-> **Where are my files?** Everything lives in one workspace folder, which you choose in **设置 (Settings)**. Open that folder in Finder to find `separated/`, `converted/` and `mixed/`.
+</details>
+
+> **Where are my files?** Everything lives in the workspace folder you pick in **设置 (Settings)**. Older workspaces use flat folders (`separated/`, `converted/`, `mixed/`, `experiments/`); **设置 → 工作区布局** can migrate them to the newer four-layer layout (`inputs/`, `work/`, `outputs/`, `models/`).
 
 ---
 
@@ -96,23 +113,24 @@ The finished cover is written to the `mixed` folder as `merged_....wav`. Double-
 
 ## 🎤 Make it sound like *you*
 
-Training is optional — the workflow above already works with any voice model. Train once and you can sing anything in your own voice.
+A cover can only sound like a voice Voxril knows: train your own, or import someone else's `.pth`. Training is a one-time job.
 
 1. **Record 10–30 minutes of your voice.** Singing or talking, a phone is fine — but no music, no echo, no noise.
 2. **Put the recordings in one folder**, e.g. `Desktop/my voice`.
-3. **Open 模型训练 (Train)** — the page you land on after launch:
+3. **Open 训练模型 (Train)** from the top bar:
    - **实验名称**: any name, e.g. `myvoice`
    - **训练集路径**: click **选择文件夹** and choose the folder from step 2
    - **采样率 / 音高算法 / 并行进程数**: don't touch them
-   - Click these three buttons in order, waiting for each to finish: **开始数据预处理** → **F0 特征提取** → **音频特征提取**
-   - Finally click **开始训练模型** and leave the Mac alone (hours, not minutes — start it before bed)
-4. When it finishes, go back to **语音转换**: your voice now appears in **声音模型**. Use it exactly like step 2 above.
+   - Run these in order, waiting for each to finish: **开始数据预处理** → **F0 特征提取** → **音频特征提取** → **开始训练模型**. The retrieval index is built automatically at the end — the voice is only usable once the index is done.
+   - Training takes hours, not minutes — start it before bed.
+4. Every run is kept as a **批次 (batch)**. The page lists them with sizes, logs, and reset/delete buttons; finished weights are archived per voice, so old batches keep working after you train a new one.
+5. Back on **一键翻唱**, your voice now appears as a card. Pick it and go.
+
+Later, manage everything from **模型管理 (Models)** — base models, your trained voices, and models you import from elsewhere (`.pth` / `.zip`).
 
 <p align="center">
-  <img src="docs/screenshots/model-training.jpg" alt="Training a voice model" width="760">
+  <img src="docs/screenshots/model-management.jpg" alt="Model management: base models and trained voices" width="760">
 </p>
-
-Later, manage everything from **模型管理 (Models)** — base models, your trained voices, and models you import from elsewhere.
 
 ---
 
@@ -151,6 +169,17 @@ Five words that appear everywhere in the app:
 
 Open this only when you're curious — the defaults work for almost everyone.
 
+### 一键翻唱 · 生成配置 (Cover)
+
+| Option | Meaning | Suggested |
+|---|---|---|
+| 变调（半音） | Pitch shift applied to the song | `0` same gender, `-12` female→male, `+12` male→female |
+| 音高提取算法 | How pitch is tracked | `RMVPE`; `Harvest` for low voices, `PM` for speed |
+| 检索特征比例 | How strongly the voice sticks to the trained timbre | `0.75`; lower if unstable, higher for a closer match |
+| 人声音量 (dB) | Vocal level against the instrumental | `+6` |
+
+The drawer saves these per voice, so every later cover with that voice reuses them.
+
 ### 人声分离 (Separate)
 
 | Option | Meaning | Suggested |
@@ -172,7 +201,7 @@ Open this only when you're curious — the defaults work for almost everyone.
 | 总训练轮数 / 保存频率 | How long to train and how often to save | 200 / every 25 |
 | 特征索引 | Makes the result sound like the target voice | Build it (automatic after training) |
 
-Output: `experiments/<name>/v2_40k/` — `G_*.pth` (the voice) and `added_*.index` (retrieval index).
+Output: `experiments/<name>/v2_40k/` (`G_*.pth` + `added_*.index`). Archived weights are kept under `models/<voice>/weights/`; each run is recorded as a batch under `models/<voice>/runs/`.
 
 ### 语音转换 (Convert)
 
@@ -183,18 +212,18 @@ Output: `experiments/<name>/v2_40k/` — `G_*.pth` (the voice) and `added_*.inde
 | 变调（半音） | Pitch shift | `0` same gender, `-12` female→male, `+12` male→female |
 | 检索特征比例 | How strongly the model sticks to the trained timbre | `0.75`; lower if unstable, higher for a closer match |
 
-Output: `converted/` — `<song>_<model>_key<n>_<f0>.wav`.
+Output: the output library — `<song>_<voice>_<run>_key<n>_<HHMM>.wav` (old layout `converted/`, new layout `outputs/draft/`).
 
-### 合成伴奏 (Merge)
+### 合成作品 (Merge)
 
 | Option | Meaning | Suggested |
 |---|---|---|
 | 新的人声音频 | The converted vocal | Auto-filled |
 | 伴奏音频 | The instrumental from step 1 | Auto-detected; use **快速** to pick it manually |
-| 输出文件夹 | Where the cover is written | `<workspace>/mixed` |
+| 输出文件夹 | Where the cover is written | `<workspace>/outputs/draft` (old layout `mixed/`) |
 | 人声音量 (dB) | Vocal level against the music | 6 dB |
 
-Output: `mixed/merged_*.wav`.
+Output: `merged_*.wav`. Hit **定稿** in the output library to move a keeper into `outputs/final/`.
 
 ### 💡 Tips
 
@@ -212,7 +241,8 @@ Output: `mixed/merged_*.wav`.
 |---|---|
 | Monthly fees, and your audio is uploaded | Free for personal and noncommercial use, fully offline |
 | RVC lives in a Gradio page stitched together with scripts and ffmpeg | One native app: separate → convert → merge → export |
-| Converting vocals is easy, finishing a cover is manual work | The built-in merge step writes the finished file for you |
+| Converting vocals is easy, finishing a cover is manual work | One-click cover runs separate → convert → merge and writes the finished file for you |
+| Results pile up in half-named folders | An output library with star, **定稿** (permanent) and a 7-day trash |
 | Training a voice normally needs a big dataset | The RVC v2 pipeline trains from a few minutes of clean vocals |
 | Models, indexes and logs scattered in folders | One workspace with a model manager |
 
@@ -262,7 +292,7 @@ song ──▶ vocal separation ─┬─▶ vocals ──▶ HuBERT + F0 ──
 | Rust core | Tauri 2 commands | file/workspace handling, audio decoding, merge & export, SQLite history, process control |
 | Python engine | PyTorch MPS + ONNX Runtime | RVC v2 inference, training pipeline, vocal separation (`audio-separator`) |
 
-**Workspace layout:** `experiments/<name>/v2_<sr>/` (training data, `G_*.pth`, `added_*.index`) · `separated/vocals`, `separated/instrumental` · `converted/` · `mixed/`.
+**Workspace layout:** the older flat layout keeps `experiments/<name>/v2_<sr>/` (training data, `G_*.pth`, `added_*.index`), `separated/` (vocals + instrumental), `converted/` and `mixed/`. **设置 → 工作区布局** migrates to the four-layer layout: `inputs/` (raw + training audio) · `work/` (datasets, runs, cache, cover jobs) · `outputs/draft` + `outputs/final` · `models/<voice>/weights`.
 
 </details>
 
@@ -307,6 +337,7 @@ The `/live` page (mic → RVC → retune → accompaniment, plus the floating ly
 - The DMG is **unsigned and not notarized**, so Gatekeeper warns on first open
 - Base models are **not committed to git** (size / licensing); they download on first launch
 - First-run setup needs network access and an existing Python 3.10+ install
+- New workspaces still start in the flat layout; the four-layer layout is opt-in via **设置 → 工作区布局**
 - **Live singing is experimental** and not recommended for production use
 
 ---
@@ -317,6 +348,9 @@ The `/live` page (mic → RVC → retune → accompaniment, plus the floating ly
 - [x] Vocal separation (BS-RoFormer + MDX-Net)
 - [x] Offline voice conversion (PyTorch MPS + ONNX)
 - [x] Merge converted vocals with the instrumental and export
+- [x] One-click cover pipeline (separate → convert → merge in a single run)
+- [x] Output library with star, finalize and a 7-day trash
+- [x] Per-voice training batches with archived weights
 - [ ] Stabilize real-time singing and the desktop lyrics window
 - [ ] Bundle a Python runtime so users don't need to install Python
 - [ ] One-click onboarding wizard for first-time users

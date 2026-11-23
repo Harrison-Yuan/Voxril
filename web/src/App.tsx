@@ -6,6 +6,7 @@ import { useEffect } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import './styles/antd-overrides.css'
 import AppLayout from './components/AppLayout'
+import CoverPage from './pages/Cover'
 import TrainPage from './pages/Train'
 import InferPage from './pages/Infer'
 import UVRPage from './pages/UVR'
@@ -55,14 +56,15 @@ function AppInner() {
           <Route path="*" element={
             <AppLayout>
               <Routes>
-                <Route path="/" element={<Navigate to="/train" replace />} />
+                <Route path="/" element={<CoverPage />} />
+                <Route path="/cover" element={<CoverPage />} />
                 <Route path="/train" element={<TrainPage />} />
                 <Route path="/infer" element={<InferPage />} />
                 <Route path="/uvr" element={<UVRPage />} />
                 <Route path="/live" element={<LiveSingingPage />} />
                 <Route path="/models" element={<ModelsPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
-                <Route path="*" element={<Navigate to="/train" replace />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </AppLayout>
           } />

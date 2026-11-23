@@ -4,6 +4,18 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 
+/// 直播引擎生命周期阶段。
+///
+/// 配合 `live_singing_stop` 确保 start/stop 在任意阶段都能收敛：
+/// `Idle → Starting → Running → Stopping → Idle`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LivePhase {
+    Idle,
+    Starting,
+    Running,
+    Stopping,
+}
+
 pub struct AppState {
     pub db: Database,
     pub workspace_root: RwLock<PathBuf>,
@@ -19,8 +31,8 @@ pub struct AppState {
     /// 全局重任务互斥令牌：同一时刻只允许运行一个 GPU 密集型任务
     /// 取值: Some("train") | Some("uvr") | Some("infer") | None
     pub active_heavy_task: Arc<Mutex<Option<String>>>,
-    /// 直播 AI 唱歌引擎状态
-    pub live_singing_active: Arc<RwLock<bool>>,
+    /// 直播 AI 唱歌引擎的生命周期阶段
+    pub live_singing_phase: Arc<RwLock<LivePhase>>,
     pub live_singing_stop: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
 }
 
@@ -45,14 +57,14 @@ impl AppState {
         crate::process_killer::kill_all(&all_pids);
 
         // 停止直播引擎
-        let mut live_active = self.live_singing_active.write().await;
-        if *live_active {
+        let mut phase = self.live_singing_phase.write().await;
+        if *phase != LivePhase::Idle {
             if let Some(stop_tx) = self.live_singing_stop.lock().await.take() {
                 let _ = stop_tx.send(());
             }
-            *live_active = false;
+            *phase = LivePhase::Idle;
         }
-        drop(live_active);
+        drop(phase);
     }
 }
 
@@ -135,7 +147,33 @@ impl AppState {
 
         tokio::fs::create_dir_all(&workspace_root).await?;
 
-        let db = Database::new(&workspace_root.join("rvc.db")).await?;
+        // 数据库文件名收敛：旧版 workspace/rvc.db → state.db（单份状态文件）。
+        // 必须在打开连接之前完成，WAL 分片一并改名，避免旧库残留未提交事务。
+        let legacy_db = workspace_root.join("rvc.db");
+        let state_db = workspace_root.join("state.db");
+        if legacy_db.exists() && !state_db.exists() {
+            let mut renamed: Vec<(PathBuf, PathBuf)> = Vec::new();
+            for suffix in ["", "-wal", "-shm"] {
+                let src = PathBuf::from(format!("{}{}", legacy_db.display(), suffix));
+                if !src.exists() {
+                    continue;
+                }
+                let dst = PathBuf::from(format!("{}{}", state_db.display(), suffix));
+                match tokio::fs::rename(&src, &dst).await {
+                    Ok(()) => renamed.push((src, dst)),
+                    Err(e) => {
+                        eprintln!("[状态] 迁移数据库文件失败 {}: {}", src.display(), e);
+                        // 整体回滚，宁可继续用旧文件名，也不留下半套文件
+                        for (from, to) in renamed.iter().rev() {
+                            let _ = tokio::fs::rename(to, from).await;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        let db_path = if state_db.exists() { state_db } else { legacy_db };
+        let db = Database::new(&db_path).await?;
 
         // Find python
         let venv_python = crate::platform::venv_python_rel();
@@ -183,7 +221,7 @@ impl AppState {
             download_pids: Mutex::new(Vec::new()),
             train_pid: Mutex::new(None),
             active_heavy_task: Arc::new(Mutex::new(None)),
-            live_singing_active: Arc::new(RwLock::new(false)),
+            live_singing_phase: Arc::new(RwLock::new(LivePhase::Idle)),
             live_singing_stop: Mutex::new(None),
         })
     }

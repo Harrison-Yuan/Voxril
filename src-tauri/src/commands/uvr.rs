@@ -1,18 +1,37 @@
 use crate::python::PythonExecutor;
 use crate::state::AppState;
+use crate::workspace_layout::WorkspaceLayout;
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, State};
 use tokio::io::{AsyncBufReadExt, BufReader};
+use std::path::PathBuf;
 use std::process::Stdio;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SeparateRequest {
     pub model_name: String,
     pub input_path: String,
-    pub vocal_dir: String,
-    pub instrumental_dir: String,
+    /// 自定义输出根目录；留空则使用工作区数据集目录。
+    #[serde(default)]
+    pub output_dir: Option<String>,
     pub agg: i32,
     pub format: String,
+}
+
+/// 解析分离输出目录（`<base>/vocals` 与 `<base>/instrumental`）。
+/// 未指定 `output_dir` 时由工作区布局决定，前端不再拼接路径。
+async fn resolve_output_dirs(request: &SeparateRequest, state: &AppState) -> (String, String) {
+    let base = match request.output_dir.as_deref().map(str::trim) {
+        Some(s) if !s.is_empty() => PathBuf::from(s),
+        _ => {
+            let workspace_root = state.workspace_root.read().await;
+            WorkspaceLayout::detect(&*workspace_root).datasets_root()
+        }
+    };
+    (
+        base.join("vocals").to_string_lossy().to_string(),
+        base.join("instrumental").to_string_lossy().to_string(),
+    )
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -31,6 +50,7 @@ pub async fn separate_vocals(
     state: State<'_, AppState>,
 ) -> Result<SeparateResponse, String> {
     let executor = PythonExecutor::new(state.project_root.clone(), state.data_dir.clone());
+    let (vocal_dir, instrumental_dir) = resolve_output_dirs(&request, &state).await;
 
     let python_code = format!(
         r#"
@@ -76,8 +96,8 @@ else:
 "#,
         state.project_root.display(),
         request.input_path,
-        request.vocal_dir,
-        request.instrumental_dir,
+        vocal_dir,
+        instrumental_dir,
         request.format,
         request.model_name,
     );
@@ -96,6 +116,8 @@ else:
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SeparateProgressPayload {
     pub event_id: String,
+    /// 所属流程阶段：独立分离为 `separate`，一键翻唱里同样为 `separate`。
+    pub stage: String,
     pub kind: String,       // "progress" | "log" | "result"
     pub step: String,       // "file" | "segment"
     pub current: i32,
@@ -147,7 +169,15 @@ pub async fn separate_vocals_streaming(
     // 设置任务令牌
     *state.active_heavy_task.lock().await = Some("uvr".to_string());
 
-    let result = _do_separate_vocals_streaming(request, event_id, &state, app).await;
+    let result = do_separate_vocals_streaming(
+        request,
+        event_id,
+        "uvr-separate-progress",
+        "separate",
+        &state,
+        app,
+    )
+    .await;
 
     // 无论成功失败，都清除令牌
     {
@@ -179,14 +209,21 @@ pub async fn cancel_uvr(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
-async fn _do_separate_vocals_streaming(
+/// 执行人声分离，并通过 `event_name` 事件通道推送进度。
+///
+/// 独立分离页与一键翻唱共用本函数：前者监听 `uvr-separate-progress`，
+/// 后者监听 `cover-progress`，靠 `stage` 字段区分当前阶段。调用方负责加锁。
+pub(crate) async fn do_separate_vocals_streaming(
     request: SeparateRequest,
     event_id: String,
+    event_name: &str,
+    stage: &str,
     state: &State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<SeparateResponse, String> {
     let executor = PythonExecutor::new(state.project_root.clone(), state.data_dir.clone());
     let project_root = state.project_root.clone();
+    let (vocal_dir, instrumental_dir) = resolve_output_dirs(&request, state).await;
 
     let python_code = format!(
         r#"
@@ -259,8 +296,8 @@ else:
 "#,
         project_root = project_root.display(),
         input_path = request.input_path,
-        vocal_dir = request.vocal_dir,
-        ins_dir = request.instrumental_dir,
+        vocal_dir = vocal_dir,
+        ins_dir = instrumental_dir,
         format = request.format,
         model_name = request.model_name,
     );
@@ -288,6 +325,8 @@ else:
 
     let app2 = app.clone();
     let event_id2 = event_id.clone();
+    let event_name2 = event_name.to_string();
+    let stage2 = stage.to_string();
     let stderr_handle = tokio::spawn(async move {
         let mut lines = Vec::new();
         let mut buf = String::new();
@@ -299,8 +338,9 @@ else:
                     if !trimmed.is_empty() {
                         lines.push(trimmed.clone());
                         // Also forward stderr as log progress to frontend
-                        let _ = app2.emit("uvr-separate-progress", &SeparateProgressPayload {
+                        let _ = app2.emit(&event_name2, &SeparateProgressPayload {
                             event_id: event_id2.clone(),
+                            stage: stage2.clone(),
                             kind: "log".to_string(),
                             step: String::new(),
                             current: 0,
@@ -323,11 +363,12 @@ else:
             Ok(_) => {
                 let trimmed = line.trim().to_string();
                 if trimmed.starts_with("[UVR_PROGRESS]") {
-                    let payload = parse_uvr_progress(&trimmed, &event_id);
-                    let _ = app.emit("uvr-separate-progress", &payload);
+                    let payload = parse_uvr_progress(&trimmed, &event_id, stage);
+                    let _ = app.emit(event_name, &payload);
                 } else if !trimmed.is_empty() {
-                    let _ = app.emit("uvr-separate-progress", &SeparateProgressPayload {
+                    let _ = app.emit(event_name, &SeparateProgressPayload {
                         event_id: event_id.clone(),
+                        stage: stage.to_string(),
                         kind: "log".to_string(),
                         step: String::new(),
                         current: 0,
@@ -343,8 +384,9 @@ else:
                 line.clear();
             }
             Err(e) => {
-                let _ = app.emit("uvr-separate-progress", &SeparateProgressPayload {
+                let _ = app.emit(event_name, &SeparateProgressPayload {
                     event_id: event_id.clone(),
+                    stage: stage.to_string(),
                     kind: "log".to_string(),
                     step: String::new(),
                     current: 0,
@@ -376,7 +418,7 @@ else:
     Ok(response)
 }
 
-fn parse_uvr_progress(line: &str, event_id: &str) -> SeparateProgressPayload {
+fn parse_uvr_progress(line: &str, event_id: &str, stage: &str) -> SeparateProgressPayload {
     let after_tag = line.strip_prefix("[UVR_PROGRESS]").unwrap_or(line);
 
     let file_tag_end = after_tag.find(']').unwrap_or(0);
@@ -406,6 +448,7 @@ fn parse_uvr_progress(line: &str, event_id: &str) -> SeparateProgressPayload {
 
     SeparateProgressPayload {
         event_id: event_id.to_string(),
+        stage: stage.to_string(),
         kind: "progress".to_string(),
         step: step.to_string(),
         current,

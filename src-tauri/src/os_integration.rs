@@ -41,10 +41,12 @@ pub fn restore_window_state(data_dir: &PathBuf, window: &WebviewWindow) {
     }
     if let Ok(json) = std::fs::read_to_string(&path) {
         if let Ok(state) = serde_json::from_str::<WindowState>(&json) {
-            use tauri::LogicalPosition;
-            use tauri::LogicalSize;
-            let _ = window.set_position(LogicalPosition::new(state.x as f64, state.y as f64));
-            let _ = window.set_size(LogicalSize::new(state.width as f64, state.height as f64));
+            // ⚠️ 保存时用的是 outer_position / outer_size（物理像素），
+            //     恢复必须同样使用物理像素，否则在 Retina（scale=2）屏上尺寸会被放大一倍。
+            use tauri::PhysicalPosition;
+            use tauri::PhysicalSize;
+            let _ = window.set_position(PhysicalPosition::new(state.x, state.y));
+            let _ = window.set_size(PhysicalSize::new(state.width, state.height));
         }
     }
 }

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type WorkflowStage = 'pending' | 'running' | 'done' | 'error'
+export type WorkflowStage = 'pending' | 'running' | 'done' | 'error' | 'stale' | 'reclaimed'
 export type StepStatus = 'wait' | 'process' | 'finish' | 'error'
 
 export interface TrainProgressState {

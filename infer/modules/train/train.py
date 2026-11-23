@@ -99,6 +99,23 @@ class EpochRecorder:
         return f"[{current_time}] | ({elapsed_time_str})"
 
 
+def _load_pretrain_state(path):
+    """读取预训练/续训权重。
+
+    兼容两种格式：RVC 官方预训练底的 "model" 键，以及 model.pth 的 "weight" 键。
+    读不到权重时直接抛错，避免静默地从零开始训练。
+    """
+    obj = torch.load(path, map_location="cpu")
+    if not isinstance(obj, dict):
+        raise ValueError(f"权重文件不是 dict: {path}")
+    state = obj.get("model") or obj.get("weight")
+    if not state:
+        raise KeyError(f"权重文件缺少 'model'/'weight' 键: {path}")
+    if all(k.startswith("module.") for k in state):
+        state = {k[len("module."):]: v for k, v in state.items()}
+    return state
+
+
 def main():
     n_gpus = torch.cuda.device_count()
 
@@ -240,51 +257,21 @@ def run(rank, n_gpus, hps, logger: logging.Logger):
         epoch_str = 1
         global_step = 0
         if hps.pretrainG != "":
-            try:
-                if not os.path.exists(hps.pretrainG):
-                    if rank == 0:
-                        logger.warning("pretrained G not found: %s, training Generator from scratch", hps.pretrainG)
-                else:
-                    if rank == 0:
-                        logger.info("loaded pretrained %s" % (hps.pretrainG))
-                    if hasattr(net_g, "module"):
-                        try:
-                            net_g.module.load_state_dict(
-                                torch.load(hps.pretrainG, map_location="cpu")["model"], strict=False
-                            )
-                        except Exception as e:
-                            if rank == 0:
-                                logger.warning("partial load G: %s", e)
-                    else:
-                        try:
-                            net_g.load_state_dict(
-                                torch.load(hps.pretrainG, map_location="cpu")["model"], strict=False
-                            )
-                        except Exception as e:
-                            if rank == 0:
-                                logger.warning("partial load G: %s", e)
-            except Exception as e:
-                if rank == 0:
-                    logger.warning("Failed to load pretrained G (%s), training from scratch: %s", hps.pretrainG, e)
+            if not os.path.exists(hps.pretrainG):
+                raise FileNotFoundError(f"预训练 Generator 不存在: {hps.pretrainG}")
+            state_g = _load_pretrain_state(hps.pretrainG)
+            net_g_module = net_g.module if hasattr(net_g, "module") else net_g
+            net_g_module.load_state_dict(state_g, strict=False)
+            if rank == 0:
+                logger.info("loaded pretrained %s", hps.pretrainG)
         if hps.pretrainD != "":
-            try:
-                if not os.path.exists(hps.pretrainD):
-                    if rank == 0:
-                        logger.warning("pretrained D not found: %s, training Discriminator from scratch", hps.pretrainD)
-                else:
-                    if rank == 0:
-                        logger.info("loaded pretrained %s" % (hps.pretrainD))
-                    if hasattr(net_d, "module"):
-                        net_d.module.load_state_dict(
-                            torch.load(hps.pretrainD, map_location="cpu")["model"]
-                        )
-                    else:
-                        net_d.load_state_dict(
-                            torch.load(hps.pretrainD, map_location="cpu")["model"]
-                        )
-            except Exception as e:
-                if rank == 0:
-                    logger.warning("Failed to load pretrained D (%s), training from scratch: %s", hps.pretrainD, e)
+            if not os.path.exists(hps.pretrainD):
+                raise FileNotFoundError(f"预训练 Discriminator 不存在: {hps.pretrainD}")
+            state_d = _load_pretrain_state(hps.pretrainD)
+            net_d_module = net_d.module if hasattr(net_d, "module") else net_d
+            net_d_module.load_state_dict(state_d)
+            if rank == 0:
+                logger.info("loaded pretrained %s", hps.pretrainD)
 
     scheduler_g = torch.optim.lr_scheduler.ExponentialLR(
         optim_g, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2

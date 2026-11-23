@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Form, message } from 'antd'
 import { open } from '@tauri-apps/plugin-dialog'
-import { invoke } from '@tauri-apps/api/core'
 import { inferApi } from '../../api/infer'
 import { workspaceApi } from '../../api/workspace'
 import { useUvrStore } from '../../store/uvrStore'
@@ -10,7 +9,9 @@ import { useInferStore } from '../../store/inferStore'
 export const DEFAULT_PARAMS = {
   modelName: '', transpose: 0, f0Method: 'rmvpe',
   indexRate: 0.75, filterRadius: 3, resampleSr: 0,
-  rmsMixRate: 1.0, protect: 0.5,
+  // protect 必须 < 0.5，否则 pipeline 中的辅音/静音保护分支会被跳过，
+  // 导致静音帧也吃满 index_rate 的检索特征，在未发声处合成出人声噪声。
+  rmsMixRate: 1.0, protect: 0.33,
 }
 
 export const toNum = (v: unknown, fb: number) => {
@@ -48,7 +49,6 @@ export function useInferState() {
     workspaceApi.getWorkspace().then(r => {
       const root = (r.workspace || '').replace(/\/$/, '')
       setWorkspaceRoot(root)
-      if (root) mergeForm.setFieldValue('outputDir', `${root}/mixed`)
     }).catch(() => {})
     setTimeout(autoDetectInstrumental, 500)
 
@@ -99,7 +99,7 @@ export function useInferState() {
       return
     }
     if (!workspaceRoot) return
-    invoke<{ files: { name: string; path: string }[] }>('list_audio_files', { dir: `${workspaceRoot}/separated/instrumental` })
+    inferApi.listDatasetAudio('instrumental')
       .then(res => {
         if (res.files?.length === 1) {
           mergeForm.setFieldValue('instrumentalPath', res.files[0].path)
@@ -113,7 +113,7 @@ export function useInferState() {
   const quickInstrumental = async () => {
     if (!workspaceRoot) { message.warning('请先配置工作目录'); return }
     try {
-      const res = await invoke<{ files: { name: string; path: string }[] }>('list_audio_files', { dir: `${workspaceRoot}/separated/instrumental` })
+      const res = await inferApi.listDatasetAudio('instrumental')
       if (!res.files?.length) { message.warning('工作目录中未找到伴奏文件'); return }
       if (res.files.length === 1) {
         mergeForm.setFieldValue('instrumentalPath', res.files[0].path)
@@ -133,7 +133,7 @@ export function useInferState() {
       transpose: toNum(p.transpose, 0), f0_method: String(p.f0Method || 'rmvpe'),
       index_rate: toNum(p.indexRate, 0.75), filter_radius: toNum(p.filterRadius, 3),
       resample_sr: toNum(p.resampleSr, 0), rms_mix_rate: toNum(p.rmsMixRate, 1.0),
-      protect: toNum(p.protect, 0.5),
+      protect: toNum(p.protect, 0.33),
     })
     if (result.ok && result.output_path) {
       mergeForm.setFieldValue('vocalPath', result.output_path)
@@ -150,8 +150,8 @@ export function useInferState() {
     if (!v.instrumentalPath) { message.warning('请选择伴奏文件'); return }
     setMergeLoading(true); setMergeOutputPath('')
     try {
-      const result = await inferApi.mergeAudio(String(v.vocalPath), String(v.instrumentalPath), String(v.outputDir || ''), v.vocalGain ?? 6)
-      if (result.ok && result.output_path) { setMergeOutputPath(result.output_path); message.success('伴奏和人声已合成完成') }
+      const result = await inferApi.mergeAudio(String(v.vocalPath), String(v.instrumentalPath), v.vocalGain ?? 6)
+      if (result.ok && result.output_path) { setMergeOutputPath(result.output_path); message.success('新人声已与原伴奏合成，作品已生成') }
       else { message.error(result.message || '合成失败') }
     } catch (e) { message.error(`合成失败：${String(e)}`) }
     finally { setMergeLoading(false) }

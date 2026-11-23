@@ -1,8 +1,10 @@
 import { useEffect } from 'react'
 import { Form, Select, Slider, Button, Progress, Row, Col, Alert, message, Input, Collapse, Modal, List } from 'antd'
-import { UploadOutlined, SoundOutlined, MergeOutlined, FolderOpenOutlined, StopOutlined } from '@ant-design/icons'
-import { open } from '@tauri-apps/plugin-dialog'
+import {
+  UploadOutlined, SoundOutlined, MergeOutlined, StopOutlined,
+} from '@ant-design/icons'
 import LogViewer from '../../components/LogViewer'
+import { OutputLibrary } from '../../components/OutputLibrary'
 import { useInferState } from './useInferState'
 import { useInferStore } from '@/store/inferStore'
 
@@ -57,7 +59,7 @@ export default function InferPage() {
               </span>
             </SectionHeader>
             <div style={{ padding: 20 }}>
-              <Form form={s.form} layout="vertical" initialValues={{ modelName: '', transpose: 0, f0Method: 'rmvpe', indexRate: 0.75, filterRadius: 3, resampleSr: 0, rmsMixRate: 1.0, protect: 0.5 }} onValuesChange={(_, all) => s.setFv(all)}>
+              <Form form={s.form} layout="vertical" initialValues={{ modelName: '', transpose: 0, f0Method: 'rmvpe', indexRate: 0.75, filterRadius: 3, resampleSr: 0, rmsMixRate: 1.0, protect: 0.33 }} onValuesChange={(_, all) => s.setFv(all)}>
                 <Row gutter={16}>
                   <Col span={12}>
                     <Form.Item label="声音模型" name="modelName" rules={[{ required: true, message: '请选择一个模型' }]}>
@@ -141,7 +143,7 @@ export default function InferPage() {
               </div>
               <div>
                 <div style={lbl}>工作流程</div>
-                {['先用 10~30 秒片段测试参数', '满意后再转换完整歌曲', '转换结果可在下方合成伴奏'].map((desc, i) => (
+                {['先用 10~30 秒片段测试参数', '满意后再转换完整歌曲', '转换出的人声可在下方与原伴奏合成为完整作品'].map((desc, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, marginBottom: 5 }}>
                     <span style={{ color: 'var(--color-primary-hover)', flexShrink: 0 }}>·</span>
                     <span style={{ color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>{desc}</span>
@@ -188,7 +190,7 @@ export default function InferPage() {
 
       <Collapse bordered={false} style={{ background: 'transparent' }} items={[{
         key: 'merge',
-        label: <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 500 }}><MergeOutlined style={{ color: 'var(--color-primary-hover)' }} />合成伴奏</span>,
+        label: <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 500 }}><MergeOutlined style={{ color: 'var(--color-primary-hover)' }} />合成作品</span>,
         children: (
           <Form form={s.mergeForm} layout="vertical" initialValues={{ vocalGain: 6 }}>
             <Row gutter={16}>
@@ -214,20 +216,6 @@ export default function InferPage() {
             </Row>
             <Row gutter={16}>
               <Col span={12}>
-                <Form.Item label="输出文件夹" name="outputDir">
-                  <Input placeholder={s.workspaceRoot ? `默认：${s.workspaceRoot}/mixed/` : '选择输出目录'}
-                    addonAfter={
-                      <Button type="link" size="small" icon={<FolderOpenOutlined />} onClick={async () => {
-                        try {
-                          const sel = await open({ directory: true, multiple: false, title: '选择合成结果输出文件夹' })
-                          if (sel) s.mergeForm.setFieldValue('outputDir', sel as string)
-                        } catch (e) { message.error(`选择输出文件夹失败：${String(e)}`) }
-                      }}>浏览</Button>
-                    }
-                  />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
                 <Form.Item label="人声音量 (dB)" name="vocalGain">
                   <Slider min={-6} max={12} step={1} marks={{ 0: '0dB', 3: '+3', 6: '+6', 12: '+12' }} />
                 </Form.Item>
@@ -242,6 +230,8 @@ export default function InferPage() {
           </Form>
         ),
       }]} />
+
+      <OutputLibrary refreshToken={`${s.outputUrl}|${s.mergeOutputPath}`} />
     </div>
   )
 }

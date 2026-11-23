@@ -1,6 +1,6 @@
 import { Card, Row, Col, Progress, Statistic, Typography } from 'antd'
 import type { TrainProgressState, StreamStatus } from '../hooks/useTrainProgress'
-import type { WorkflowStage } from '../hooks/useTrainWorkflow'
+import type { WorkflowStage } from '@/store/trainStore'
 
 const { Text } = Typography
 

@@ -12,8 +12,10 @@ mod os_integration;
 mod platform;
 mod process_killer;
 mod python;
+mod run_manifest;
 mod state;
 mod utils;
+mod workspace_layout;
 
 use state::AppState;
 use std::fs::File;
@@ -132,7 +134,7 @@ async fn main() {
                      let ws = state.workspace_root.read().await;
                      crate::cleanup::run_cleanup(&project, &ws);
                      // 清理过大的旧日志文件（已有逻辑，保留）
-                     let exp_root = ws.join("experiments");
+                     let exp_root = crate::workspace_layout::WorkspaceLayout::detect(&*ws).runs_root();
                      if exp_root.exists() {
                          crate::utils::truncate_logs_in_dir(&exp_root);
                      }
@@ -177,6 +179,7 @@ async fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::workspace::get_workspace,
+            commands::workspace::get_datasets_root,
             commands::workspace::set_workspace,
             commands::workspace::select_workspace,
             commands::workspace::deep_clean_cache,
@@ -202,7 +205,8 @@ async fn main() {
             commands::train::train_index,
             commands::train::build_index_cache,
             commands::train::get_train_status,
-            commands::train::check_preprocess_status,
+            commands::train::get_run_manifest,
+            commands::train::get_run_usage,
             commands::train::get_experiment_path,
             commands::train::list_experiments,
             commands::train::start_log_stream,
@@ -212,6 +216,7 @@ async fn main() {
             commands::infer::merge_audio,
             commands::infer::list_models,
             commands::infer::delete_model,
+            commands::infer::delete_output,
             commands::infer::import_model,
             commands::infer::get_base_models_status,
             commands::infer::download_base_model,
@@ -220,20 +225,34 @@ async fn main() {
             commands::uvr::separate_vocals,
             commands::uvr::separate_vocals_streaming,
             commands::uvr::cancel_uvr,
+            commands::cover::cover_generate,
+            commands::cover::cancel_cover,
+            commands::cover::list_cover_voices,
+            commands::cover::get_cover_params,
+            commands::cover::save_cover_params,
             commands::file::file_exists,
             commands::file::list_artifacts,
             commands::file::get_checkpoint_iteration,
             commands::file::read_text_file,
-            commands::file::delete_file,
             commands::file::list_audio_files,
+            commands::file::list_dataset_audio,
             commands::file::open_in_finder,
             commands::file::open_in_vscode,
-            commands::file::delete_training_result,
-            commands::file::clear_training_artifacts,
+            commands::file::reclaim_run,
+            commands::file::reset_experiment,
+            commands::file::purge_run,
+            commands::file::remove_index_artifacts,
+            commands::layout::get_layout_status,
+            commands::layout::preview_layout_migration,
+            commands::layout::migrate_layout,
+            commands::storage::get_storage_report,
+            commands::storage::reclaim_all_runs,
+            commands::outputs::list_outputs,
+            commands::outputs::finalize_output,
+            commands::outputs::set_output_starred,
             commands::audio::get_audio_devices,
             commands::live::start_live_singing,
             commands::live::set_live_f0_up_key,
-            commands::live::set_live_index_rate,
             commands::live::set_audio_source,
             commands::live::set_accompaniment_pause,
             commands::live::seek_accompaniment,
@@ -243,20 +262,18 @@ async fn main() {
             commands::live::stop_cover,
             commands::live::play_accompaniment,
             commands::live::play_current_accompaniment,
+            commands::live::get_player_state,
             commands::live::stop_accompaniment,
-            commands::live::set_lrc_path,
             commands::live::stop_live_singing,
             commands::live::get_live_singing_status,
             commands::live::list_live_models,
             commands::live::export_pth_to_onnx,
-            commands::live::extract_f0_profile,
             commands::live::extract_lyrics,
             commands::live::search_lyrics,
             commands::live::download_lyrics,
             commands::live::open_desktop_lyrics,
             commands::live::read_lrc_file,
             commands::live::list_separated_songs,
-            commands::live::get_model_index_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

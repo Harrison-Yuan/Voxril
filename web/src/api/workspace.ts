@@ -9,6 +9,11 @@ export const workspaceApi = {
     return invoke('get_workspace')
   },
 
+  /** 数据集根目录（分离后的人声/伴奏所在目录），由后端按布局解析 */
+  async getDatasetsRoot(): Promise<string> {
+    return invoke('get_datasets_root')
+  },
+
   async setWorkspace(workspace: string): Promise<WorkspaceResponse> {
     return invoke('set_workspace', { workspace })
   },

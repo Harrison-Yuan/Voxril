@@ -5,8 +5,8 @@ import type { UnlistenFn } from '@tauri-apps/api/event'
 export interface SeparateRequest {
   model_name: string
   input_path: string
-  vocal_dir: string
-  instrumental_dir: string
+  /** 自定义输出根目录；留空则由后端使用工作区数据集目录 */
+  output_dir?: string
   agg: number
   format: string
 }
@@ -38,8 +38,8 @@ export const uvrApi = {
       return {
         ok: false,
         message: String(error),
-        vocal_dir: request.vocal_dir,
-        instrumental_dir: request.instrumental_dir,
+        vocal_dir: '',
+        instrumental_dir: '',
         vocal_files: [],
         instrumental_files: [],
       }
@@ -77,8 +77,8 @@ export const uvrApi = {
       return {
         ok: false,
         message: String(error),
-        vocal_dir: request.vocal_dir,
-        instrumental_dir: request.instrumental_dir,
+        vocal_dir: '',
+        instrumental_dir: '',
         vocal_files: [],
         instrumental_files: [],
       }

@@ -1,11 +1,13 @@
+use crate::cleanup;
+use crate::run_manifest::{self, StageStatus};
 use crate::state::AppState;
 use crate::utils;
+use crate::workspace_layout::{
+    parse_run_target, OutputKind, RunTarget, WorkspaceLayout,
+};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::State;
-
-const DATA_DIR: &str = "data";
-const MODEL_DIR: &str = "models";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FileExistsResponse {
@@ -87,20 +89,32 @@ pub async fn read_text_file(path: String) -> Result<ReadTextResponse, String> {
     Ok(ReadTextResponse { content })
 }
 
-#[allow(dead_code)]
-#[tauri::command]
-pub async fn read_text(path: String) -> Result<String, String> {
-    tokio::fs::read_to_string(&path)
-        .await
-        .map_err(|e| format!("Failed to read file: {}", e))
-}
-
 #[tauri::command]
 pub async fn list_audio_files(dir: String) -> Result<AudioFilesResponse, String> {
-    let dir_path = PathBuf::from(dir);
+    collect_audio_files(&PathBuf::from(dir))
+}
+
+/// 列出数据集中的某一类音频（`kind` 只能是 `vocals` 或 `instrumental`）。
+/// 目录由后端按工作区布局解析，前端不再自行拼接路径。
+#[tauri::command]
+pub async fn list_dataset_audio(
+    kind: String,
+    state: State<'_, AppState>,
+) -> Result<AudioFilesResponse, String> {
+    if kind != "vocals" && kind != "instrumental" {
+        return Err(format!("未知的数据集类别: {}", kind));
+    }
+    let workspace_root = state.workspace_root.read().await;
+    let dir = crate::workspace_layout::WorkspaceLayout::detect(&*workspace_root)
+        .datasets_root()
+        .join(&kind);
+    collect_audio_files(&dir)
+}
+
+fn collect_audio_files(dir_path: &std::path::Path) -> Result<AudioFilesResponse, String> {
     let extensions = ["wav", "mp3", "flac", "m4a", "ogg", "aac"];
 
-    let files = utils::collect_files_with_extension(&dir_path, &extensions)
+    let files = utils::collect_files_with_extension(dir_path, &extensions)
         .map_err(|e| format!("Failed to list audio files: {}", e))?;
 
     Ok(AudioFilesResponse {
@@ -138,185 +152,283 @@ pub async fn open_in_vscode(path: String) -> Result<(), String> {
     Ok(())
 }
 
+// ───────────────────────── 批次删除语义 ─────────────────────────
+//
+// 设计依据：docs/ARTIFACT_LIFECYCLE_AND_WORKSPACE_LAYOUT.md §4.3、§4.4。
+// 所有删除都先移入 `.trash/<run_id>/`，7 天后由启动清理过期删除；
+// 磁盘上的 run.json 是唯一真源，清单缺失时拒绝任何删除操作。
+
+/// 已建批次的工作位限定名解析结果。
+struct BatchTarget {
+    voice: String,
+    run_id: String,
+}
+
+impl BatchTarget {
+    /// 只接受 `<voice>/<run_id>`；尚未建批或旧布局工作位都拒绝。
+    fn parse(exp_dir: &str) -> Result<Self, String> {
+        match parse_run_target(exp_dir)? {
+            RunTarget::Batch { voice, run_id } => Ok(Self { voice, run_id }),
+            RunTarget::New { .. } => {
+                Err("该声音尚未建立训练批次，请先完成数据预处理".to_string())
+            }
+            RunTarget::Legacy => Err(format!(
+                "旧布局工作位不支持批次操作：{}（请先完成工作区迁移）",
+                exp_dir
+            )),
+        }
+    }
+
+    fn manifest_path(&self, layout: &WorkspaceLayout) -> PathBuf {
+        layout
+            .run_manifests_dir(&self.voice)
+            .join(format!("{}.json", self.run_id))
+    }
+}
+
+struct BatchContext {
+    layout: WorkspaceLayout,
+    target: BatchTarget,
+    work_dir: PathBuf,
+    manifest_path: PathBuf,
+    manifest: run_manifest::RunManifest,
+}
+
+/// 重任务运行期间全局禁用删除，避免训练中途删除产物（历史事故点）。
+async fn ensure_idle(state: &State<'_, AppState>) -> Result<(), String> {
+    match state.active_heavy_task.lock().await.clone() {
+        Some(task) => Err(format!(
+            "系统当前有任务正在运行：[{}]，请等待完成后再执行删除或回收。",
+            task
+        )),
+        None => Ok(()),
+    }
+}
+
+async fn load_batch(state: &State<'_, AppState>, exp_dir: &str) -> Result<BatchContext, String> {
+    let target = BatchTarget::parse(exp_dir)?;
+    let workspace_root = state.workspace_root.read().await.clone();
+    let layout = WorkspaceLayout::detect(&workspace_root);
+    let work_dir = layout.run_path(exp_dir);
+    if !work_dir.is_dir() {
+        return Err(format!("批次工作位不存在：{}", work_dir.display()));
+    }
+    let manifest_path = target.manifest_path(&layout);
+    let manifest = run_manifest::read_manifest(&manifest_path)
+        .map_err(|e| format!("批次清单不可用，拒绝操作：{}", e))?;
+    Ok(BatchContext {
+        layout,
+        target,
+        work_dir,
+        manifest_path,
+        manifest,
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReclaimRunResponse {
+    /// 本次移入回收站的字节数
+    pub freed_bytes: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ResetExperimentResponse {
+    pub freed_bytes: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PurgeRunResponse {
+    pub freed_bytes: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RemoveArtifactsResponse {
+    pub removed: u32,
+    pub freed_bytes: u64,
+}
+
+/// 回收批次的一次性产物：默认 R1，`deep` 时追加 R2 与 G_/D_ 权重。
 #[tauri::command]
-pub async fn delete_file(path: String) -> Result<(), String> {
-    tokio::fs::remove_file(&path)
+pub async fn reclaim_run(
+    exp_dir: String,
+    deep: bool,
+    state: State<'_, AppState>,
+) -> Result<ReclaimRunResponse, String> {
+    ensure_idle(&state).await?;
+    let mut batch = load_batch(&state, &exp_dir).await?;
+
+    let freed = cleanup::reclaim_work_dir(
+        &batch.layout,
+        &batch.target.run_id,
+        &batch.work_dir,
+        deep,
+    );
+    if freed == 0 {
+        return Ok(ReclaimRunResponse { freed_bytes: 0 });
+    }
+
+    // 深度回收会带走预处理/F0 产物，阶段改记"已回收"而非"需重跑"
+    if deep {
+        let gone = |name: &str| !batch.work_dir.join(name).exists();
+        if gone("0_gt_wavs") {
+            batch.manifest.stages.preprocess.status = StageStatus::Reclaimed;
+        }
+        if gone("2a_f0") && gone("2b-f0nsf") {
+            batch.manifest.stages.f0.status = StageStatus::Reclaimed;
+        }
+    }
+
+    let now = run_manifest::now_ts();
+    batch.manifest.reclaimable.bytes = batch.manifest.reclaimable.bytes.saturating_add(freed);
+    batch.manifest.reclaimable.reclaimed_at = Some(now);
+    run_manifest::write_manifest(&batch.manifest_path, &batch.manifest)
+        .map_err(|e| format!("写入批次清单失败：{}", e))?;
+    if let Err(e) = state
+        .db
+        .mark_run_reclaimed(batch.target.run_id.clone(), now)
         .await
-        .map_err(|e| format!("Failed to delete file: {}", e))
+    {
+        eprintln!("[file] 登记回收时间失败: {}", e);
+    }
+    Ok(ReclaimRunResponse { freed_bytes: freed })
 }
 
+/// 重置批次工作位：清空全部产物与阶段记录，保留归档权重与批次清单。
 #[tauri::command]
-pub async fn delete_training_result(
+pub async fn reset_experiment(
     exp_dir: String,
     state: State<'_, AppState>,
-) -> Result<String, String> {
-    let logs_path = state.project_root.join("logs").join(&exp_dir);
-    let workspace_root = state.workspace_root.read().await;
-    let model_path = workspace_root.join(MODEL_DIR).join(&exp_dir);
-    let data_path = workspace_root.join(DATA_DIR).join(&exp_dir);
+) -> Result<ResetExperimentResponse, String> {
+    ensure_idle(&state).await?;
+    let mut batch = load_batch(&state, &exp_dir).await?;
 
-    let mut deleted = Vec::new();
-    let mut kept = Vec::new();
-
-    if logs_path.exists() {
-        tokio::fs::remove_dir_all(&logs_path)
-            .await
-            .map_err(|e| format!("Failed to delete logs directory: {}", e))?;
-        deleted.push("训练日志(旧)".to_string());
-    }
-
-    if model_path.exists() {
-        if let Ok(mut entries) = tokio::fs::read_dir(&model_path).await {
-            while let Ok(Some(entry)) = entries.next_entry().await {
-                let name = entry.file_name();
-                let name_str = name.to_string_lossy().to_string();
-
-                let should_delete = entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false) && (
-                    name_str == "eval"
-                    || name_str.starts_with("events.out.tfevents")
-                )
-                || name_str.ends_with(".pth")
-                || name_str.ends_with(".index")
-                || name_str.ends_with(".npy") && name_str.starts_with("total_fea")
-                || name_str.ends_with(".log")
-                || name_str.starts_with("events.out.tfevents");
-
-                if should_delete {
-                    if entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false) {
-                        tokio::fs::remove_dir_all(entry.path()).await.ok();
-                    } else {
-                        tokio::fs::remove_file(entry.path()).await.ok();
-                    }
-                    deleted.push(name_str);
-                } else {
-                    kept.push(name_str);
-                }
-            }
+    let mut freed = 0u64;
+    let entries = std::fs::read_dir(&batch.work_dir)
+        .map_err(|e| format!("读取批次目录失败：{}", e))?;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        // run.json 与归档权重不属于工作位产物，永不随重置删除
+        if name == "run.json" || name == "weights" {
+            continue;
         }
+        freed += cleanup::move_to_trash(&batch.layout, &batch.target.run_id, &entry.path());
     }
 
-    if data_path.exists() {
-        kept.push(format!("预处理数据({})", data_path.display()));
+    batch.manifest.stages = Default::default();
+    batch.manifest.params = None;
+    if freed > 0 {
+        let now = run_manifest::now_ts();
+        batch.manifest.reclaimable.bytes = batch.manifest.reclaimable.bytes.saturating_add(freed);
+        batch.manifest.reclaimable.reclaimed_at = Some(now);
     }
-
-    let message = if deleted.is_empty() {
-        "没有需要删除的训练产物".to_string()
-    } else {
-        format!(
-            "已删除: {}\n预处理数据保存在 {}，可直接重新训练",
-            deleted.join(", "),
-            data_path.display()
-        )
-    };
-
-    Ok(message)
+    run_manifest::write_manifest(&batch.manifest_path, &batch.manifest)
+        .map_err(|e| format!("写入批次清单失败：{}", e))?;
+    Ok(ResetExperimentResponse { freed_bytes: freed })
 }
 
+/// 删除历史批次：归档权重、工作位、批次清单一并移入回收站。
 #[tauri::command]
-pub async fn clear_training_artifacts(
+pub async fn purge_run(
     exp_dir: String,
     state: State<'_, AppState>,
-) -> Result<String, String> {
-    const EXPERIMENTS_DIR: &str = "experiments";
+) -> Result<PurgeRunResponse, String> {
+    ensure_idle(&state).await?;
+    let batch = load_batch(&state, &exp_dir).await?;
 
-    let workspace_root = state.workspace_root.read().await;
-    let exp_path = workspace_root.join(EXPERIMENTS_DIR).join(&exp_dir);
-
-    if !exp_path.exists() {
-        return Err(format!("实验目录不存在: {}", exp_path.display()));
+    // 保护规则：被成品引用的批次不得删除，避免成品失去来源
+    let referenced = find_output_references(&batch.layout, &batch.target.run_id);
+    if !referenced.is_empty() {
+        return Err(format!(
+            "批次 {} 仍被 {} 个成品引用，无法删除：{}",
+            batch.target.run_id,
+            referenced.len(),
+            referenced.join("、")
+        ));
     }
 
-    let mut deleted = Vec::new();
-
-    // Delete checkpoint files (G_*.pth, D_*.pth)
-    if let Ok(mut entries) = tokio::fs::read_dir(&exp_path).await {
-        while let Ok(Some(entry)) = entries.next_entry().await {
+    let mut freed = 0u64;
+    // 归档名固定为 `<voice>-<run_id>-e<epoch>.<ext>`；用完整前缀匹配，
+    // 避免 `261122-0156` 误伤 `261122-0156-2` 这类同分钟冲突批次。
+    let asset_prefix = format!("{}-{}-e", batch.target.voice, batch.target.run_id);
+    if let Ok(entries) = std::fs::read_dir(batch.layout.weights_dir(&batch.target.voice)) {
+        for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
-            if (name.starts_with("G_") || name.starts_with("D_")) && name.ends_with(".pth") {
-                tokio::fs::remove_file(entry.path()).await.ok();
-                deleted.push(name);
+            if name.starts_with(&asset_prefix) {
+                freed +=
+                    cleanup::move_to_trash(&batch.layout, &batch.target.run_id, &entry.path());
             }
         }
     }
+    freed += cleanup::move_to_trash(&batch.layout, &batch.target.run_id, &batch.work_dir);
+    freed += cleanup::move_to_trash(&batch.layout, &batch.target.run_id, &batch.manifest_path);
 
-    // Delete checkpoints subdirectory
-    let ckpt_dir = exp_path.join("checkpoints");
-    if ckpt_dir.exists() {
-        tokio::fs::remove_dir_all(&ckpt_dir).await.ok();
-        deleted.push("checkpoints/".to_string());
+    if let Err(e) = state.db.delete_run(batch.target.run_id.clone()).await {
+        eprintln!("[file] 删除批次索引失败: {}", e);
+    }
+    Ok(PurgeRunResponse { freed_bytes: freed })
+}
+
+/// 重建索引前清掉工作位里的旧索引及 sidecar：n_ivf 随特征数量变化，旧文件名会残留。
+#[tauri::command]
+pub async fn remove_index_artifacts(
+    exp_dir: String,
+    state: State<'_, AppState>,
+) -> Result<RemoveArtifactsResponse, String> {
+    ensure_idle(&state).await?;
+    let batch = load_batch(&state, &exp_dir).await?;
+
+    let mut indexes =
+        utils::glob_files(&batch.work_dir.join("checkpoints"), "index").unwrap_or_default();
+    if indexes.is_empty() {
+        indexes = utils::glob_files(&batch.work_dir, "index").unwrap_or_default();
     }
 
-    // Delete model.pth
-    let model_pth = exp_path.join("model.pth");
-    if model_pth.exists() {
-        tokio::fs::remove_file(&model_pth).await.ok();
-        deleted.push("model.pth".to_string());
-    }
-
-    // Delete index files
-    let index_files = utils::glob_files(&exp_path, "index").unwrap_or_default();
-    for p in &index_files {
-        tokio::fs::remove_file(p).await.ok();
-        deleted.push(p.file_name().unwrap().to_string_lossy().to_string());
-    }
-
-    // Delete total_fea.npy (legacy — no longer used but may exist from old builds)
-    let total_fea = exp_path.join("total_fea.npy");
-    if total_fea.exists() {
-        tokio::fs::remove_file(&total_fea).await.ok();
-        deleted.push("total_fea.npy".to_string());
-    }
-
-    // Delete logs and config
-    for name in &["train.log", "config.json", "filelist.txt"] {
-        let p = exp_path.join(name);
-        if p.exists() {
-            tokio::fs::remove_file(&p).await.ok();
-            deleted.push(name.to_string());
-        }
-    }
-
-    // Delete eval directory
-    let eval_dir = exp_path.join("eval");
-    if eval_dir.exists() {
-        tokio::fs::remove_dir_all(&eval_dir).await.ok();
-        deleted.push("eval/".to_string());
-    }
-
-    // Delete preprocessing/feature extraction outputs (audio, f0, features)
-    // These must be regenerated if the preprocessing code has changed
-    for name in &["0_gt_wavs", "1_16k_wavs", "2a_f0", "2b-f0nsf", "3_feature256", "3_feature768"] {
-        let p = exp_path.join(name);
-        if p.exists() {
-            tokio::fs::remove_dir_all(&p).await.ok();
-            deleted.push(format!("{}/", name));
-        }
-    }
-
-    // Delete preprocessing/feature extraction logs
-    for name in &["preprocess.log", "extract_f0_feature.log", "extract_audio_feature.log"] {
-        let p = exp_path.join(name);
-        if p.exists() {
-            tokio::fs::remove_file(&p).await.ok();
-            deleted.push(name.to_string());
-        }
-    }
-
-    // Delete tensorboard events
-    if let Ok(mut entries) = tokio::fs::read_dir(&exp_path).await {
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with("events.out.tfevents") {
-                tokio::fs::remove_file(entry.path()).await.ok();
-                deleted.push(name);
+    let mut removed = 0u32;
+    let mut freed = 0u64;
+    for index in indexes {
+        for suffix in ["", ".vectors.bin", ".meta.txt", ".ivf.bin"] {
+            let path = if suffix.is_empty() {
+                index.clone()
+            } else {
+                PathBuf::from(format!("{}{}", index.display(), suffix))
+            };
+            freed += cleanup::move_to_trash(&batch.layout, &batch.target.run_id, &path);
+            if suffix.is_empty() && !path.exists() {
+                removed += 1;
             }
         }
     }
+    Ok(RemoveArtifactsResponse {
+        removed,
+        freed_bytes: freed,
+    })
+}
 
-    let msg = if deleted.is_empty() {
-        "没有可清理的训练产物".to_string()
-    } else {
-        format!("已清理 {} 个训练产物及预处理数据，可重新开始完整训练流程（预处理→特征提取→训练）", deleted.len())
-    };
-    Ok(msg)
+/// 在 outputs 下查找引用了该批次的成品文件（保护规则 §4.4-1）。
+fn find_output_references(layout: &WorkspaceLayout, run_id: &str) -> Vec<String> {
+    let mut roots = vec![
+        layout.output_dir(OutputKind::Vocal),
+        layout.output_dir(OutputKind::Mixed),
+        layout.final_output_dir(),
+    ];
+    roots.sort();
+    roots.dedup();
+
+    let mut hits = Vec::new();
+    for root in roots {
+        for entry in walkdir::WalkDir::new(&root)
+            .follow_links(false)
+            .into_iter()
+            .flatten()
+        {
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.contains(run_id) {
+                hits.push(name);
+            }
+        }
+    }
+    hits
 }

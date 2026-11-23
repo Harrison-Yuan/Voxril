@@ -31,6 +31,9 @@ interface PlayerState {
   total_lines: number
   total_duration_secs: number
   preview_lines: Array<{ time_secs: number; text: string }>
+  instrumental_path?: string
+  lrc_path?: string
+  cover_path?: string
 }
 
 const INITIAL_STATE: PlayerState = {
@@ -77,6 +80,9 @@ export default function PlaybackControls({
           total_lines: d.total_lines ?? 0,
           total_duration_secs: d.total_duration_secs ?? 0,
           preview_lines: d.preview_lines ?? [],
+          instrumental_path: d.instrumental_path,
+          lrc_path: d.lrc_path,
+          cover_path: d.cover_path,
         })
       } else if (d.status !== undefined) {
         setPs(prev => ({ ...prev, status: d.status }))
@@ -85,18 +91,38 @@ export default function PlaybackControls({
     return () => { unlisten?.() }
   }, [])
 
+  // ── 挂载时查询后端当前状态（桌面歌词等子窗口首次打开时获取初始状态） ──
+  useEffect(() => {
+    invoke<PlayerState>('get_player_state').then(state => {
+      setPs(prev => ({
+        ...prev,
+        status: state.status ?? prev.status,
+        audio_source: state.audio_source ?? prev.audio_source,
+        progress_secs: state.progress_secs ?? prev.progress_secs,
+        instrumental_path: state.instrumental_path,
+        lrc_path: state.lrc_path,
+        cover_path: state.cover_path,
+      }))
+    }).catch(() => {
+      // 忽略，事件系统会后续同步
+    })
+  }, [])
+
   // ── 播放器运输 ──
 
   const handlePlay = async () => {
-    if (ps.status === 'stopped' && selectedSong) {
+    if (ps.status === 'stopped' && (selectedSong || ps.instrumental_path)) {
       try {
         message.loading({ content: '加载歌曲中...', key: 'acc-load' })
+        const instrumentalPath = selectedSong?.instrumental_path || ps.instrumental_path!
+        const lrcPath = selectedSong?.lrc_path || ps.lrc_path || null
+        const coverPath = selectedSong?.converted_path || ps.cover_path || null
         await invoke('play_accompaniment', {
-          audioPath: selectedSong.instrumental_path,
-          lrcPath: selectedSong.lrc_path || null,
-          coverPath: selectedSong.converted_path || null,
+          audioPath: instrumentalPath,
+          lrcPath,
+          coverPath,
         })
-        message.success({ content: `已加载: ${selectedSong.name}`, key: 'acc-load' })
+        message.success({ content: '已加载', key: 'acc-load' })
       } catch (err) {
         message.error({ content: `加载失败: ${err}`, key: 'acc-load' })
       }
@@ -115,12 +141,19 @@ export default function PlaybackControls({
 
   const handleSourceChange = async (source: 'live' | 'cover') => {
     const src = source === 'live' ? 0 : 1
-    if (src === 1 && ps.status === 'stopped' && selectedSong) {
-      await invoke('play_accompaniment', {
-        audioPath: selectedSong.instrumental_path,
-        lrcPath: selectedSong.lrc_path || null,
-        coverPath: selectedSong.converted_path || null,
-      })
+    const coverPath = selectedSong?.converted_path || ps.cover_path
+    if (src === 1 && coverPath) {
+      if (ps.status === 'stopped') {
+        // 停止状态 → 重新加载伴奏 + 翻唱
+        await invoke('play_accompaniment', {
+          audioPath: selectedSong?.instrumental_path || ps.instrumental_path,
+          lrcPath: selectedSong?.lrc_path || ps.lrc_path || null,
+          coverPath,
+        })
+      } else {
+        // 播放中 → 仅预加载翻唱人声（不重启伴奏）
+        await invoke('preload_cover', { audioPath: coverPath })
+      }
     }
     await invoke('set_audio_source', { source: src })
     if (src === 1) {
@@ -183,7 +216,7 @@ export default function PlaybackControls({
         type={ps.status === 'playing' ? 'primary' : 'default'}
         icon={<PlayCircleOutlined />}
         onClick={handlePlay}
-        disabled={ps.status === 'playing'}
+        disabled={ps.status === 'playing' || (ps.status === 'stopped' && !selectedSong && !ps.instrumental_path)}
         style={{ borderRadius: 20, fontSize: compact ? 11 : 12 }}
       >
         {!compact && (ps.status === 'stopped' ? t('lyrics.load_play') : '播放')}

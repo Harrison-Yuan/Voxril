@@ -1,6 +1,8 @@
 import { Card, Button, Space, Typography, Tag, Alert, Progress } from 'antd'
 import { SoundOutlined, ApartmentOutlined } from '@ant-design/icons'
-import type { WorkflowStage } from '../hooks/useTrainWorkflow'
+import type { WorkflowStage } from '@/store/trainStore'
+import type { RunUsage } from '../services/trainApi'
+import { formatBytes } from '@/lib/formatBytes'
 
 const { Text } = Typography
 
@@ -11,6 +13,7 @@ interface FeatureExtractionStepsProps {
   ifF0: boolean
   running: boolean
   currentExtracting: 'none' | 'f0' | 'audio'
+  usage?: RunUsage | null
   f0Percent?: number
   audioPercent?: number
   onExtractF0: () => void
@@ -22,6 +25,8 @@ const statusTextMap: Record<WorkflowStage, string> = {
   running: '进行中',
   done: '已完成',
   error: '失败',
+  stale: '需重跑',
+  reclaimed: '已回收',
 }
 
 const statusColorMap: Record<WorkflowStage, string> = {
@@ -29,6 +34,8 @@ const statusColorMap: Record<WorkflowStage, string> = {
   running: 'processing',
   done: 'success',
   error: 'error',
+  stale: 'warning',
+  reclaimed: 'default',
 }
 
 export const FeatureExtractionSteps = ({
@@ -38,6 +45,7 @@ export const FeatureExtractionSteps = ({
   ifF0,
   running,
   currentExtracting,
+  usage,
   f0Percent,
   audioPercent,
   onExtractF0,
@@ -45,6 +53,8 @@ export const FeatureExtractionSteps = ({
 }: FeatureExtractionStepsProps) => {
   const preprocessDone = preprocessStatus === 'done'
   const f0Done = !ifF0 || f0Status === 'done'
+  const f0DoneText = f0Status === 'done' || f0Status === 'reclaimed'
+  const audioDoneText = audioStatus === 'done' || audioStatus === 'reclaimed'
 
   return (
     <Card
@@ -88,6 +98,14 @@ export const FeatureExtractionSteps = ({
               {f0Status === 'running' && f0Percent !== undefined && f0Percent > 0 && (
                 <Progress percent={f0Percent} size="small" style={{ width: 200, marginTop: 4 }} />
               )}
+              {usage && (
+                <>
+                  <br />
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    本步产出：{formatBytes(usage.f0)}
+                  </Text>
+                </>
+              )}
             </div>
           </Space>
           <Button
@@ -96,7 +114,7 @@ export const FeatureExtractionSteps = ({
             loading={currentExtracting === 'f0'}
             disabled={!preprocessDone || running}
           >
-            {f0Status === 'done' ? '重新提取' : f0Status === 'error' ? '重试 F0 提取' : '提取 F0 特征'}
+            {f0DoneText ? '重新提取' : f0Status === 'error' ? '重试 F0 提取' : '提取 F0 特征'}
           </Button>
         </div>
       )}
@@ -120,6 +138,14 @@ export const FeatureExtractionSteps = ({
               {audioStatus === 'running' && audioPercent !== undefined && audioPercent > 0 && (
                 <Progress percent={audioPercent} size="small" style={{ width: 200, marginTop: 4 }} />
               )}
+              {usage && (
+                <>
+                  <br />
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    本步产出：{formatBytes(usage.feature)}
+                  </Text>
+                </>
+              )}
             </div>
           </Space>
           <Button
@@ -128,7 +154,7 @@ export const FeatureExtractionSteps = ({
             loading={currentExtracting === 'audio'}
             disabled={!preprocessDone || !f0Done || running}
           >
-            {audioStatus === 'done' ? '重新提取' : audioStatus === 'error' ? '重试音频提取' : '提取音频特征'}
+            {audioDoneText ? '重新提取' : audioStatus === 'error' ? '重试音频提取' : '提取音频特征'}
           </Button>
         </div>
 

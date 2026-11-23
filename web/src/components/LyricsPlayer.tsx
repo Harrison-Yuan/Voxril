@@ -158,8 +158,8 @@ export default function LyricsPlayer({ connected, songs, selectedSongName }: Lyr
 
       {expanded && (
         <>
-          {/* 控制栏（可复用组件） */}
-          {connected && selectedSongName && (
+          {/* 控制栏（仅需有歌曲名就显示，与上下播状态解耦） */}
+          {selectedSongName && (
             <div style={{
               borderBottom: '1px solid var(--color-border-subtle)',
             }}>

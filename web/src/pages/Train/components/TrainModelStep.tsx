@@ -1,7 +1,9 @@
 import { Card, Slider, Switch, Button, Space, Typography, Row, Col, Alert, Tag, Divider, Collapse } from 'antd'
 import { DeleteOutlined, ThunderboltOutlined, ApartmentOutlined } from '@ant-design/icons'
-import type { WorkflowStage } from '../hooks/useTrainWorkflow'
+import type { WorkflowStage } from '@/store/trainStore'
 import type { ExperimentConfig } from '../hooks/useExperimentConfig'
+import type { RunUsage } from '../services/trainApi'
+import { formatBytes } from '@/lib/formatBytes'
 
 const { Text } = Typography
 
@@ -14,6 +16,7 @@ interface TrainModelStepProps {
   totalEpoch: number
   running: boolean
   canRun: boolean
+  usage?: RunUsage | null
   onConfigChange: (values: Partial<ExperimentConfig>) => void
   onRun: () => void
   onStop: () => void
@@ -26,6 +29,8 @@ const statusTextMap: Record<WorkflowStage, string> = {
   running: '进行中',
   done: '已完成',
   error: '失败',
+  stale: '需重跑',
+  reclaimed: '已回收',
 }
 
 const statusColorMap: Record<WorkflowStage, string> = {
@@ -33,6 +38,8 @@ const statusColorMap: Record<WorkflowStage, string> = {
   running: 'processing',
   done: 'success',
   error: 'error',
+  stale: 'warning',
+  reclaimed: 'default',
 }
 
 export const TrainModelStep = ({
@@ -44,6 +51,7 @@ export const TrainModelStep = ({
   totalEpoch,
   running,
   canRun,
+  usage,
   onConfigChange,
   onRun,
   onStop,
@@ -66,7 +74,7 @@ export const TrainModelStep = ({
     <Card
       title={
         <Space>
-          <Text>步骤 2：训练模型</Text>
+          <Text>步骤 3：训练模型</Text>
           <Tag color={statusColorMap[trainStatus]}>{statusTextMap[trainStatus]}</Tag>
         </Space>
       }
@@ -75,7 +83,7 @@ export const TrainModelStep = ({
         <Space>
           {(trainEpoch > 0 || trainStatus === 'done') && (
             <Button danger onClick={onClearTraining} icon={<DeleteOutlined />}>
-              清理训练结果
+              重置批次
             </Button>
           )}
           {trainStatus === 'running' && (
@@ -101,8 +109,8 @@ export const TrainModelStep = ({
         style={{ marginBottom: 16 }}
         message={
           featuresStatus === 'done'
-            ? '数据预处理已完成，可以开始训练。'
-            : '请先完成步骤1：数据预处理。'
+            ? '特征提取已完成，可以开始训练。'
+            : '请先完成步骤 2：特征提取。'
         }
       />
 
@@ -141,6 +149,12 @@ export const TrainModelStep = ({
 
       </Row>
 
+      {usage && (
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          本步产出：{formatBytes(usage.train)}
+        </Text>
+      )}
+
       <Collapse ghost style={{ marginTop: 8 }}>
         <Collapse.Panel header="高级设置" key="advanced">
           <Row gutter={[24, 16]}>
@@ -172,13 +186,21 @@ export const TrainModelStep = ({
         <Col>
           <Space>
             <ApartmentOutlined />
-            <Text strong>特征索引</Text>
+            <Text strong>步骤 4：构建特征索引</Text>
             <Tag color={statusColorMap[indexStatus]}>{statusTextMap[indexStatus]}</Tag>
           </Space>
           <br />
           <Text type="secondary" style={{ fontSize: 12 }}>
             训练完成后需构建特征索引才能用于声音转换。可手动点击触发。
           </Text>
+          {usage && (
+            <>
+              <br />
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                本步产出：{formatBytes(usage.index)}
+              </Text>
+            </>
+          )}
         </Col>
         <Col>
           <Button

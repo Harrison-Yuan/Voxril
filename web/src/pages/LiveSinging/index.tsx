@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Form, Select, Button, Row, Col, Alert, message, Card, Progress, Statistic, Space, Tag, Slider } from 'antd'
-import { AudioOutlined, SettingOutlined, PlayCircleOutlined, StopOutlined, SoundOutlined, QuestionCircleOutlined, RadarChartOutlined, LoadingOutlined } from '@ant-design/icons'
+import { AudioOutlined, SettingOutlined, PlayCircleOutlined, StopOutlined, SoundOutlined, QuestionCircleOutlined, RadarChartOutlined } from '@ant-design/icons'
 import { invoke } from '@tauri-apps/api/core'
 import { useLiveSingingStore } from '@/store/liveSingingStore'
 import { inferApi, type SeparatedSong } from '@/api/infer'
@@ -8,26 +8,6 @@ import { useI18n } from '@/i18n'
 import LogViewer from '../../components/LogViewer'
 import LyricsPlayer from '../../components/LyricsPlayer'
 import LyricsSearchModal from '../../components/LyricsSearchModal'
-
-/**
- * Ant Design Select 的下拉面板渲染在 body 的 portal 中，
- * 所以样式必须放在全局作用域而非组件局部。使用 :global 穿透 CSS Modules。
- */
-const styles = `
-.song-option-item .f0-extract-btn {
-  opacity: 0.35;
-  transition: opacity 0.15s ease;
-}
-.song-option-item:hover .f0-extract-btn {
-  opacity: 1;
-}
-`
-if (typeof document !== 'undefined' && !document.getElementById('f0-extract-style')) {
-  const el = document.createElement('style')
-  el.id = 'f0-extract-style'
-  el.textContent = styles
-  document.head.appendChild(el)
-}
 
 interface AudioDevice {
   name: string
@@ -57,22 +37,6 @@ export default function LiveSingingPage() {
   const startError = useLiveSingingStore(s => s.startError)
   const start = useLiveSingingStore(s => s.start)
   const stop = useLiveSingingStore(s => s.stop)
-  const extractF0 = useLiveSingingStore(s => s.extractF0)
-
-  const handleExtractF0 = async (song: SeparatedSong) => {
-    setExtractingSongs(prev => ({ ...prev, [song.name]: true }))
-    try {
-      await extractF0(song.vocal_path)
-      await fetchSeparatedSongs()
-      message.success(`${t('live.f0_extract_done')}：${song.name}`)
-    } catch (err) {
-      message.error(`${t('live.f0_extract_failed')}: ${err}`)
-    } finally {
-      setExtractingSongs(prev => ({ ...prev, [song.name]: false }))
-    }
-  }
-
-  const [extractingSongs, setExtractingSongs] = useState<Record<string, boolean>>({})
   const [selectedSongForPreview, setSelectedSongForPreview] = useState<string>()
 
   useEffect(() => {
@@ -118,14 +82,16 @@ export default function LiveSingingPage() {
         message.warning(t('live.select_mic'))
         return
       }
+      const song = selectedSongForPreview
+        ? separatedSongs.find(s => s.name === selectedSongForPreview)
+        : undefined
       const result = await start({
         input_device: v.inputDevice,
-        output_device: v.outputDevice,
-        model_path: '',
+        output_device: v.outputDevice || '',
         f0_up_key: v.f0UpKey || 0,
-        accompaniment_path: '',
-        cover_path: '',
-        duck_gain: v.duckGain || 0.3,
+        accompaniment_path: song?.instrumental_path || '',
+        cover_path: song?.converted_path || '',
+        lrc_path: song?.lrc_path || '',
       })
       if (result.ok) {
         message.success(t('live.engine_started'))
@@ -200,7 +166,7 @@ export default function LiveSingingPage() {
             <Form
               form={form}
               layout="vertical"
-              initialValues={{ f0UpKey: 0, duckGain: 0.3 }}
+              initialValues={{ f0UpKey: 0 }}
             >
               <Row gutter={16}>
                 <Col span={12}>
@@ -250,75 +216,48 @@ export default function LiveSingingPage() {
                   optionRender={(option) => {
                     const song = separatedSongs.find(s => s.name === option.value)
                     if (!song) return <>{option.label}</>
-                    const isExtracting = extractingSongs[song.name]
                     return (
                       <div
                         style={{
                           display: 'flex',
                           alignItems: 'center',
-                          justifyContent: 'space-between',
                           height: 32,
                           lineHeight: '32px',
                         }}
-                        className="song-option-item"
                       >
                         <Space>
                           <span>{song.name}</span>
-                          {song.f0_exists ? (
-                            <Tag color="success" style={{ fontSize: 10, lineHeight: '18px', padding: '0 6px' }}>{t('live.f0_ready')}</Tag>
-                          ) : (
-                            <Tag style={{ fontSize: 10, lineHeight: '18px', padding: '0 6px' }}>{t('live.f0_pending')}</Tag>
-                          )}
                           {song.lrc_exists ? (
                             <Tag color="purple" style={{ fontSize: 10, lineHeight: '18px', padding: '0 6px' }}>{t('live.lyrics_ready')}</Tag>
                           ) : (
                             <Tag style={{ fontSize: 10, lineHeight: '18px', padding: '0 6px' }}>{t('live.lyrics_pending')}</Tag>
                           )}
                         </Space>
-                        {isExtracting ? (
-                          <LoadingOutlined style={{ color: 'var(--color-primary)' }} />
-                        ) : (
-                          <Space size={0}>
-                            {!song.f0_exists && (
+                        <Space size={0} style={{ marginLeft: 8 }}>
+                          <LyricsSearchModal
+                            audioPath={song.vocal_path}
+                            songName={song.name}
+                            onDownloaded={() => {
+                              fetchSeparatedSongs()
+                            }}
+                          >
+                            {(openModal) => (
                               <Button
                                 type="link"
                                 size="small"
                                 style={{ minWidth: 0, padding: '0 6px', fontSize: 12 }}
-                                onClick={async (e) => {
+                                onClick={(e) => {
                                   e.stopPropagation()
                                   e.preventDefault()
-                                  await handleExtractF0(song)
+                                  openModal()
                                 }}
                               >
                                 <RadarChartOutlined style={{ marginRight: 2 }} />
-                                {t('live.extract_f0')}
+                                {song.lrc_exists ? t('live.research_lyrics') : t('live.search_lyrics')}
                               </Button>
                             )}
-                            <LyricsSearchModal
-                              audioPath={song.vocal_path}
-                              songName={song.name}
-                              onDownloaded={() => {
-                                fetchSeparatedSongs()
-                              }}
-                            >
-                              {(openModal) => (
-                                <Button
-                                  type="link"
-                                  size="small"
-                                  style={{ minWidth: 0, padding: '0 6px', fontSize: 12 }}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    e.preventDefault()
-                                    openModal()
-                                  }}
-                                >
-                                  <RadarChartOutlined style={{ marginRight: 2 }} />
-                                  {song.lrc_exists ? t('live.research_lyrics') : t('live.search_lyrics')}
-                                </Button>
-                              )}
-                            </LyricsSearchModal>
-                          </Space>
-                        )}
+                          </LyricsSearchModal>
+                        </Space>
                       </div>
                     )
                   }}
@@ -519,14 +458,6 @@ export default function LiveSingingPage() {
             <li dangerouslySetInnerHTML={{ __html: t('live.how_it_works_step4') }} />
             <li dangerouslySetInnerHTML={{ __html: t('live.how_it_works_step5') }} />
           </ol>
-          <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 8 }}>
-            {t('live.f0_profile_title')}
-          </div>
-          <ul style={{ paddingLeft: 18, margin: 0 }}>
-            <li>{t('live.f0_profile_desc_1')}</li>
-            <li>{t('live.f0_profile_desc_2')}</li>
-            <li>{t('live.f0_profile_desc_3')}</li>
-          </ul>
         </div>
       </Card>
 

@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Space, Typography, Alert, Modal, message, Card, Button, Descriptions } from 'antd'
-import { FolderOpenOutlined, DeleteOutlined } from '@ant-design/icons'
+import { FolderOpenOutlined, DeleteOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import { listen } from '@tauri-apps/api/event'
 import type { UnlistenFn } from '@tauri-apps/api/event'
 import { PreprocessStep } from './components/PreprocessStep'
@@ -9,12 +10,14 @@ import { TrainModelStep } from './components/TrainModelStep'
 import { TrainProgress } from './components/TrainProgress'
 import { TrainLogViewer } from './components/TrainLogViewer'
 import { NextStepsGuide } from './components/NextStepsGuide'
+import { BatchTable, formatRunDate } from './components/BatchTable'
 import { useExperimentConfig } from './hooks/useExperimentConfig'
 import { useWorkflowSync } from './hooks/useWorkflowSync'
-import { useTrainStore } from '@/store/trainStore'
+import { useTrainStore, type WorkflowStage } from '@/store/trainStore'
 import { trainApi } from './services/trainApi'
+import type { ExperimentSummary, ManifestStageStatus, RunManifest, RunUsage } from './services/trainApi'
+import { formatBytes } from '@/lib/formatBytes'
 import { workspaceApi } from '@/api/workspace'
-import { workflowApi } from '@/api/database'
 import type { StreamStatus } from './hooks/useTrainProgress'
 
 const { Title, Text } = Typography
@@ -26,41 +29,119 @@ export default function TrainV2Page() {
   const addRecord = (..._args: unknown[]) => crypto.randomUUID()
   const updateRecord = noop
 
-  const [workspaceRoot, setWorkspaceRoot] = useState<string>('')
-  const qualifiedExpDir = config.expDir ? `${config.expDir}/v2_${config.sr}` : ''
-  const expPath = workspaceRoot && config.expDir ? `${workspaceRoot}/experiments/${qualifiedExpDir}` : ''
+  /**
+   * 实验标识：配置中的声音名。前端状态（trainStore / workflow 持久化）一律以它为准，
+   * 这样预处理建批前后状态键不变，进度不会丢。
+   */
+  const experimentKey = config.expDir.trim()
+  /** 已建批的工作位限定名 `<voice>/<run_id>`；尚未建批时为空。 */
+  const [runExpDir, setRunExpDir] = useState('')
+  /** 传给后端的工作位：未建批时只有声音名（由预处理建批），建批后为 `<voice>/<run_id>`。 */
+  const workExpDir = runExpDir || experimentKey
+  /** 工作位绝对路径及其对应的限定名，由后端按工作区布局解析（前端不拼目录名）。 */
+  const [resolvedPath, setResolvedPath] = useState<{ dir: string; path: string }>({ dir: '', path: '' })
+  const expPath = resolvedPath.dir === workExpDir ? resolvedPath.path : ''
 
-  const { syncWorkflow } = useWorkflowSync(qualifiedExpDir)
+  const { syncWorkflow } = useWorkflowSync(experimentKey)
 
   const trainStore = useTrainStore()
-  const workflowStatus = trainStore.getWorkflowStatus(qualifiedExpDir, config.totalEpoch)
-  const trainProgress = trainStore.getTrainProgress(qualifiedExpDir)
-  const steps = trainStore.getSteps(qualifiedExpDir)
-  const running = trainStore.getRunning(qualifiedExpDir)
-  const currentStep = trainStore.getCurrentStep(qualifiedExpDir)
-  const checkpointPath = trainStore.getCheckpointPath(qualifiedExpDir)
+  const workflowStatus = trainStore.getWorkflowStatus(experimentKey, config.totalEpoch)
+  const trainProgress = trainStore.getTrainProgress(experimentKey)
+  const steps = trainStore.getSteps(experimentKey)
+  const running = trainStore.getRunning(experimentKey)
+  const currentStep = trainStore.getCurrentStep(experimentKey)
+  const checkpointPath = trainStore.getCheckpointPath(experimentKey)
 
-  const [experimentOptions, setExperimentOptions] = useState<string[]>([])
+  const [experiments, setExperiments] = useState<ExperimentSummary[]>([])
+  /** 该声音下的批次，最新在前；旧布局目录（`v2_40k`）不属于批次。 */
+  const voiceBatches = useMemo(
+    () => experiments.filter((item) => item.voice === experimentKey && !item.legacy).reverse(),
+    [experiments, experimentKey]
+  )
+  /** 实验下拉的可选声音名（去重排序）。切到哪个批次由批次列表决定。 */
+  const experimentOptions = useMemo(
+    () => Array.from(new Set(experiments.map((item) => item.voice))).sort(),
+    [experiments]
+  )
+  /** 当前批次的分阶段体积；未绑定批次时为 null。 */
+  const [usage, setUsage] = useState<RunUsage | null>(null)
+  /** 自增触发批次状态重读（步骤完成后调用）。 */
+  const [refreshToken, setRefreshToken] = useState(0)
   const [logStreamStatus, setLogStreamStatus] = useState<StreamStatus>('idle')
   const [trainProgressStreamStatus, setTrainProgressStreamStatus] = useState<StreamStatus>('idle')
   const [isInitialized, setIsInitialized] = useState(false)
   const [currentExtracting, setCurrentExtracting] = useState<'none' | 'f0' | 'audio'>('none')
   const logUnlistenRef = useRef<UnlistenFn | null>(null)
   const progressUnlistenRef = useRef<UnlistenFn | null>(null)
+  /** 已自动绑定过最近批次的声音名，避免刷新列表时把用户手动选的旧批次顶掉。 */
+  const autoBoundVoiceRef = useRef('')
+
+  const refreshBatchStatus = () => setRefreshToken((token) => token + 1)
+
+  /**
+   * 从翻唱首页声音卡片的「详情」进入时带 `?voice=<声音名>`：
+   * 等初始配置加载完成后载入该声音的配置，并把参数从地址栏移除，避免回退时重复套用。
+   */
+  const [searchParams, setSearchParams] = useSearchParams()
+  const voiceParam = searchParams.get('voice')
+  const appliedVoiceRef = useRef('')
+  useEffect(() => {
+    if (!voiceParam || !isLoaded || appliedVoiceRef.current === voiceParam) return
+    appliedVoiceRef.current = voiceParam
+    void loadConfigForExperiment(voiceParam)
+    const next = new URLSearchParams(searchParams)
+    next.delete('voice')
+    setSearchParams(next, { replace: true })
+  }, [voiceParam, isLoaded])
+
+  const loadExperiments = async () => {
+    setExperiments(await trainApi.listExperiments())
+  }
+
+  /** 清单阶段状态 → 前端流程状态；`failed` 在界面上显示为"失败"。 */
+  const stageStatusToWorkflow = (status: ManifestStageStatus): WorkflowStage =>
+    status === 'failed' ? 'error' : status
+
+  /** F0 与音频特征合并为"特征提取"总状态。 */
+  const combineFeatures = (f0: WorkflowStage, audio: WorkflowStage): WorkflowStage => {
+    if (f0 === 'error' || audio === 'error') return 'error'
+    if (f0 === 'running' || audio === 'running') return 'running'
+    if (f0 === 'stale' || audio === 'stale') return 'stale'
+    if (f0 === 'reclaimed' || audio === 'reclaimed') return 'reclaimed'
+    if (f0 === 'done' && audio === 'done') return 'done'
+    return 'pending'
+  }
+
+  /** 以 run.json 为准刷新流程状态。 */
+  const applyManifest = (manifest: RunManifest) => {
+    const preprocess = stageStatusToWorkflow(manifest.stages.preprocess.status)
+    const f0 = stageStatusToWorkflow(manifest.stages.f0.status)
+    const audio = stageStatusToWorkflow(manifest.stages.feature.status)
+    const train = stageStatusToWorkflow(manifest.stages.train.status)
+    const index = stageStatusToWorkflow(manifest.stages.index.status)
+    trainStore.setWorkflowStatus(experimentKey, {
+      preprocess,
+      f0,
+      audio,
+      features: combineFeatures(f0, audio),
+      train,
+      index,
+      trainEpoch: train === 'done' ? (manifest.stages.train.epoch ?? 0) : 0,
+      totalEpoch: manifest.params?.epochs ?? config.totalEpoch,
+    })
+    trainStore.setRunning(
+      experimentKey,
+      [preprocess, f0, audio, train, index].includes('running')
+    )
+  }
 
   useEffect(() => {
     const initializeApp = async () => {
       try {
-        const [experiments, workspace] = await Promise.all([
-          trainApi.listExperiments(),
-          workspaceApi.getWorkspace()
-        ])
-        setExperimentOptions(experiments)
-        setWorkspaceRoot(workspace.workspace)
-        
-        setIsInitialized(true)
+        setExperiments(await trainApi.listExperiments())
       } catch (error) {
         console.error('Failed to initialize app:', error)
+      } finally {
         setIsInitialized(true)
       }
     }
@@ -68,171 +149,90 @@ export default function TrainV2Page() {
     initializeApp()
   }, [])
 
+  // 工作位目录由后端按布局解析，避免前端硬编码目录结构
   useEffect(() => {
-    if (!isLoaded || !isInitialized || !qualifiedExpDir || !workspaceRoot) return
-    
-    const checkFileSystemStatus = async () => {
-      try {
-        const [
-          preprocessLogExists,
-          extractLogExists,
-        ] = await Promise.all([
-          trainApi.fileExists(`${expPath}/preprocess.log`),
-          trainApi.fileExists(`${expPath}/extract_f0_feature.log`),
-        ])
-        
-        let preprocessStatus: typeof workflowStatus.preprocess = 'pending'
-        let featuresStatus: typeof workflowStatus.features = 'pending'
-        let f0Status: typeof workflowStatus.f0 = 'pending'
-        let audioStatus: typeof workflowStatus.audio = 'pending'
-        
-        if (preprocessLogExists) {
-          const preprocessLog = await trainApi.readLocalText(`${expPath}/preprocess.log`)
-          if (preprocessLog.includes('end preprocess')) {
-            preprocessStatus = 'done'
-          } else if (preprocessLog.includes('Fail.') || preprocessLog.includes('错误') || preprocessLog.includes('Traceback')) {
-            preprocessStatus = 'error'
-          } else if (preprocessLog.includes('start preprocess') || preprocessLog.includes('Found ') || preprocessLog.includes('Progress:')) {
-            preprocessStatus = 'running'
-          } else {
-            preprocessStatus = 'running'
-          }
-        }
-        
-        if (extractLogExists && preprocessStatus === 'done') {
-          const extractLog = await trainApi.readLocalText(`${expPath}/extract_f0_feature.log`)
-          if (extractLog.includes('all-feature-done')) {
-            f0Status = 'done'
-            audioStatus = 'done'
-            featuresStatus = 'done'
-          } else if (extractLog.includes('Fail.') || extractLog.includes('错误') || extractLog.includes('Traceback')) {
-            f0Status = 'error'
-            featuresStatus = 'error'
-          } else if (extractLog.includes('todo-f0') || extractLog.includes('all-feature-')) {
-            f0Status = 'running'
-            featuresStatus = 'running'
-          }
-          
-          // Check audio feature extraction separately
-          const audioLogPath = `${expPath}/extract_audio_feature.log`
-          const audioLogExists = await trainApi.fileExists(audioLogPath)
-          if (audioLogExists && f0Status === 'done') {
-            const audioLog = await trainApi.readLocalText(audioLogPath)
-            if (audioLog.includes('all-feature-done')) {
-              audioStatus = 'done'
-            } else if (audioLog.includes('Fail.') || audioLog.includes('错误') || audioLog.includes('Traceback')) {
-              audioStatus = 'error'
-            } else if (audioLog.includes('all-feature-')) {
-              audioStatus = 'running'
-            }
-          }
-        }
-        
-        trainStore.setWorkflowStatus(qualifiedExpDir, {
-          preprocess: preprocessStatus,
-          f0: f0Status,
-          audio: audioStatus,
-          features: featuresStatus,
-        })
-        
-        const isActuallyRunning = preprocessStatus === 'running' || f0Status === 'running' || audioStatus === 'running'
-        
-        if (isActuallyRunning) {
-          const actualStatus = await trainApi.getTrainStatus(qualifiedExpDir)
-          if (!actualStatus.isRunning) {
-            if (preprocessStatus === 'running') {
-              preprocessStatus = 'error'
-            }
-            if (f0Status === 'running') {
-              f0Status = 'error'
-            }
-            if (audioStatus === 'running') {
-              audioStatus = 'error'
-            }
-            trainStore.setWorkflowStatus(qualifiedExpDir, {
-              preprocess: preprocessStatus,
-              f0: f0Status,
-              audio: audioStatus,
-              features: f0Status === 'error' || audioStatus === 'error' ? 'error' : featuresStatus,
-            })
-            trainStore.setRunning(qualifiedExpDir, false)
-          } else {
-            trainStore.setRunning(qualifiedExpDir, true)
-            trainStore.setCurrentStep(qualifiedExpDir, 0)
-          }
-        } else {
-          trainStore.setRunning(qualifiedExpDir, false)
-        }
-        
-        const featuresRunning = f0Status === 'running' || audioStatus === 'running'
-        const modelExists = await trainApi.fileExists(`${expPath}/train.log`) || await trainApi.fileExists(`${expPath}/config.json`)
-        if (modelExists || preprocessStatus === 'running' || featuresRunning) {
-          await checkTrainStatus(preprocessStatus === 'running', featuresRunning)
-        }
+    if (!workExpDir) return
+    let cancelled = false
+    trainApi.getExperimentPath(workExpDir).then(({ experimentPath }) => {
+      if (!cancelled) setResolvedPath({ dir: workExpDir, path: experimentPath })
+    })
+    return () => { cancelled = true }
+  }, [workExpDir])
 
-        const indexFiles = await trainApi.getArtifactMatches(expPath, 'index')
-        const hasModelPth = await trainApi.fileExists(`${expPath}/model.pth`)
-        const checkpointMatches = await trainApi.getArtifactMatches(expPath, 'checkpoint')
-        const hasCheckpoints = checkpointMatches.length > 0
-        if (indexFiles.length > 0 || hasModelPth || hasCheckpoints) {
-          const status = await trainApi.getTrainStatus(qualifiedExpDir)
-          const actualEpoch = status.currentEpoch > 0 ? status.currentEpoch : workflowStatus.trainEpoch
-          if (actualEpoch >= config.totalEpoch) {
-            trainStore.setWorkflowStatus(qualifiedExpDir, {
-              preprocess: 'done',
-              f0: 'done',
-              audio: 'done',
-              features: 'done',
-              train: 'done',
-              index: 'done',
-              trainEpoch: config.totalEpoch,
-              totalEpoch: config.totalEpoch,
-            })
-          } else {
-            trainStore.setWorkflowStatus(qualifiedExpDir, {
-              preprocess: 'done',
-              f0: 'done',
-              audio: 'done',
-              features: 'done',
-              trainEpoch: actualEpoch,
-              totalEpoch: config.totalEpoch,
-            })
-            if (actualEpoch > 0 && !status.isRunning && !status.errorMessage) {
-              persistWorkflow({ train: 'pending', trainEpoch: actualEpoch, totalEpoch: config.totalEpoch })
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Failed to check file system status:', error)
-        trainStore.setRunning(qualifiedExpDir, false)
+  // 切换声音即视为换实验：解除上一个批次的绑定
+  useEffect(() => {
+    setRunExpDir('')
+  }, [config.expDir])
+
+  // 页面上还没有批次时，自动接上该声音的最新批次，保证状态、体积与日志连续
+  useEffect(() => {
+    if (!isInitialized || !experimentKey || runExpDir) return
+    if (autoBoundVoiceRef.current === experimentKey) return
+    const latest = voiceBatches[0]
+    if (!latest) return
+    autoBoundVoiceRef.current = experimentKey
+    setRunExpDir(`${latest.voice}/${latest.run_id}`)
+  }, [isInitialized, experimentKey, runExpDir, voiceBatches])
+
+  // 步骤状态以批次清单（run.json）为唯一真源：磁盘产物 + 指纹校准后的结果
+  useEffect(() => {
+    if (!isLoaded || !isInitialized || !experimentKey) return
+    let cancelled = false
+
+    const loadManifest = async () => {
+      const manifest = await trainApi.getRunManifest(workExpDir)
+      if (cancelled) return
+      if (!manifest) {
+        // 尚未建批或仍是旧布局：保留工作流中已有的进度，不做覆盖
+        setUsage(null)
+        return
+      }
+      applyManifest(manifest)
+
+      const runUsage = runExpDir ? await trainApi.getRunUsage(workExpDir) : null
+      if (cancelled) return
+      setUsage(runUsage)
+
+      // 页面重进或应用重启后，仍在运行的阶段需要重新接上日志流与进度流
+      if (manifest.stages.preprocess.status === 'running') {
+        await checkTrainStatus(true, false)
+      } else if (manifest.stages.f0.status === 'running' || manifest.stages.feature.status === 'running') {
+        await checkTrainStatus(false, true)
+      } else if (manifest.stages.train.status === 'running') {
+        await checkTrainStatus()
       }
     }
-    
-    checkFileSystemStatus()
-  }, [qualifiedExpDir, isLoaded, isInitialized, workspaceRoot])
+
+    loadManifest().catch((error) => {
+      console.error('Failed to load run manifest:', error)
+      if (!cancelled) trainStore.setRunning(experimentKey, false)
+    })
+
+    return () => { cancelled = true }
+  }, [experimentKey, workExpDir, runExpDir, expPath, isLoaded, isInitialized, refreshToken])
 
   const checkTrainStatus = async (reconnectPreprocess = false, reconnectFeatures = false) => {
-    if (!qualifiedExpDir || !workspaceRoot) return
+    if (!experimentKey || !expPath) return
     
     if (reconnectPreprocess) {
-      trainStore.setCurrentStep(qualifiedExpDir, 0)
-      trainStore.setRunning(qualifiedExpDir, true)
+      trainStore.setCurrentStep(experimentKey, 0)
+      trainStore.setRunning(experimentKey, true)
       await openLogStream(0, `${expPath}/preprocess.log`)
       return
     }
 
     if (reconnectFeatures) {
-      trainStore.setCurrentStep(qualifiedExpDir, 0)
-      trainStore.setRunning(qualifiedExpDir, true)
+      trainStore.setCurrentStep(experimentKey, 0)
+      trainStore.setRunning(experimentKey, true)
       await openLogStream(0, `${expPath}/extract_f0_feature.log`)
       return
     }
     
     try {
-      const status = await trainApi.getTrainStatus(qualifiedExpDir)
+      const status = await trainApi.getTrainStatus(workExpDir)
       
       if (status.currentEpoch > 0 || status.totalEpoch > 0) {
-        trainStore.setTrainProgress(qualifiedExpDir, {
+        trainStore.setTrainProgress(experimentKey, {
           currentEpoch: status.currentEpoch,
           currentPercent: status.percent,
           latestLoss: status.latestLoss,
@@ -240,11 +240,11 @@ export default function TrainV2Page() {
         
         if (status.errorMessage) {
           persistWorkflow({ train: 'error', trainEpoch: status.currentEpoch, totalEpoch: status.totalEpoch })
-          trainStore.updateStep(qualifiedExpDir, 1, {
+          trainStore.updateStep(experimentKey, 1, {
             status: 'error',
             log: `训练异常退出:\n${status.logTail || status.errorMessage}`
           })
-          trainStore.setRunning(qualifiedExpDir, false)
+          trainStore.setRunning(experimentKey, false)
           message.error(`训练异常: ${status.errorMessage}`)
           return
         }
@@ -257,16 +257,16 @@ export default function TrainV2Page() {
       }
       
       if (status.isRunning) {
-        trainStore.setCurrentStep(qualifiedExpDir, 1)
-        trainStore.setRunning(qualifiedExpDir, true)
+        trainStore.setCurrentStep(experimentKey, 1)
+        trainStore.setRunning(experimentKey, true)
         
         const logPath = `${expPath}/train.log`
         const existingLog = status.logTail || await trainApi.readLocalText(logPath)
         if (existingLog) {
-          trainStore.updateStep(qualifiedExpDir, 1, { log: existingLog.split('\n').slice(-80).join('\n'), status: 'process' })
+          trainStore.updateStep(experimentKey, 1, { log: existingLog.split('\n').slice(-80).join('\n'), status: 'process' })
         }
         await openLogStream(1, logPath, existingLog)
-        await openProgressStream(qualifiedExpDir, status.totalEpoch)
+        await openProgressStream(experimentKey, workExpDir, status.totalEpoch)
       }
     } catch (error) {
       console.error('Failed to check train status:', error)
@@ -274,35 +274,38 @@ export default function TrainV2Page() {
   }
 
   useEffect(() => {
-    if (!qualifiedExpDir) return
+    if (!experimentKey) return
     
     if (!running) {
-      trainStore.setCheckpointPath(qualifiedExpDir, '')
+      trainStore.setCheckpointPath(experimentKey, '')
     }
-  }, [qualifiedExpDir])
+  }, [experimentKey])
 
   useEffect(() => {
-    if (workflowStatus.train === 'running' && trainProgressStreamStatus === 'idle' && logStreamStatus === 'idle' && workspaceRoot) {
+    if (workflowStatus.train === 'running' && trainProgressStreamStatus === 'idle' && logStreamStatus === 'idle' && expPath) {
       openLogStream(1, `${expPath}/train.log`)
-      openProgressStream(qualifiedExpDir, config.totalEpoch)
+      openProgressStream(experimentKey, workExpDir, config.totalEpoch)
     }
-  }, [workflowStatus.train, workspaceRoot, trainProgressStreamStatus, logStreamStatus])
+  }, [workflowStatus.train, expPath, workExpDir, trainProgressStreamStatus, logStreamStatus])
 
   useEffect(() => () => closeAllStreams(), [])
 
   const persistWorkflow = async (patch: Partial<typeof workflowStatus>) => {
     const next = { ...workflowStatus, ...patch }
     if (next.trainEpoch > 0) {
-      next.preprocess = 'done'
-      next.f0 = 'done'
-      next.audio = 'done'
-      next.features = 'done'
+      // 训练有进度说明这些步骤确实完成过；但已被回收或指纹失效的状态不能被覆盖
+      const settle = (stage: WorkflowStage): WorkflowStage =>
+        stage === 'pending' ? 'done' : stage
+      next.preprocess = settle(next.preprocess)
+      next.f0 = settle(next.f0)
+      next.audio = settle(next.audio)
+      next.features = settle(next.features)
     }
     await syncWorkflow(next)
   }
 
   const updateStep = (idx: number, patch: Partial<typeof steps[0]>) => {
-    trainStore.updateStep(qualifiedExpDir, idx, patch)
+    trainStore.updateStep(experimentKey, idx, patch)
   }
 
   const closeAllStreams = () => {
@@ -324,7 +327,7 @@ export default function TrainV2Page() {
     }
     
     setLogStreamStatus('connecting')
-    const eventId = `log-stream-${qualifiedExpDir}-${Date.now()}`
+    const eventId = `log-stream-${experimentKey}-${Date.now()}`
     let logBuffer = initialLog
     
     try {
@@ -334,7 +337,7 @@ export default function TrainV2Page() {
         if (payload.type === 'error') {
           setLogStreamStatus('idle')
           updateStep(stepIdx, { status: 'error', log: `日志读取失败: ${payload.message}` })
-          trainStore.setRunning(qualifiedExpDir, false)
+          trainStore.setRunning(experimentKey, false)
           return
         }
         
@@ -367,17 +370,20 @@ export default function TrainV2Page() {
       console.error('Failed to start log stream:', error)
       setLogStreamStatus('idle')
       updateStep(stepIdx, { status: 'error', log: `启动日志流失败: ${String(error)}` })
-      trainStore.setRunning(qualifiedExpDir, false)
+      trainStore.setRunning(experimentKey, false)
     }
   }
 
-  const openProgressStream = async (expDir: string, totalEpoch: number) => {
+  /**
+   * 订阅训练进度事件。storeKey 为前端状态键（声音名），workDir 为后端工作位（含批次号）。
+   */
+  const openProgressStream = async (storeKey: string, workDir: string, totalEpoch: number) => {
     if (progressUnlistenRef.current) {
       progressUnlistenRef.current()
     }
     
     setTrainProgressStreamStatus('connecting')
-    const eventId = `progress-stream-${expDir}-${Date.now()}`
+    const eventId = `progress-stream-${storeKey}-${Date.now()}`
     
     try {
       const unlisten = await listen(eventId, (event: any) => {
@@ -390,7 +396,7 @@ export default function TrainV2Page() {
           const loss = String(payload.loss ?? '')
           const status = String(payload.status ?? 'waiting')
           
-          trainStore.setTrainProgress(expDir, {
+          trainStore.setTrainProgress(storeKey, {
             currentEpoch: epoch,
             currentPercent: percent,
             latestLoss: loss,
@@ -400,7 +406,7 @@ export default function TrainV2Page() {
           
           if (status === 'running') {
             persistWorkflow({ train: 'running', trainEpoch: epoch, totalEpoch })
-            const recordId = trainStore.getCurrentRecordId(expDir)
+            const recordId = trainStore.getCurrentRecordId(storeKey)
             if (recordId) updateRecord(recordId, { completedEpoch: epoch })
           }
           
@@ -413,7 +419,7 @@ export default function TrainV2Page() {
         if (payload.type === 'error') {
           message.error(`训练异常: ${payload.message}`)
           updateStep(1, { status: 'error', log: `训练异常退出:\n${payload.message}` })
-          trainStore.setRunning(qualifiedExpDir, false)
+          trainStore.setRunning(storeKey, false)
           persistWorkflow({ train: 'error' })
           closeAllStreams()
         }
@@ -421,7 +427,7 @@ export default function TrainV2Page() {
       
       progressUnlistenRef.current = unlisten
       
-      await trainApi.startTrainProgressStream(expDir, totalEpoch, eventId)
+      await trainApi.startTrainProgressStream(workDir, totalEpoch, eventId)
       
     } catch (error) {
       console.error('Failed to start progress stream:', error)
@@ -442,8 +448,9 @@ export default function TrainV2Page() {
   const handleConfigChange = async (patch: Partial<typeof config>) => {
     if (patch.expDir && patch.expDir !== config.expDir) {
       closeAllStreams()
-      trainStore.setRunning(qualifiedExpDir, false)
-      const exists = experimentOptions.includes(patch.expDir)
+      trainStore.setRunning(experimentKey, false)
+      autoBoundVoiceRef.current = ''
+      const exists = experiments.some((item) => item.voice === patch.expDir)
       message.loading({ content: exists ? `正在加载实验 "${patch.expDir}" 的配置...` : `正在创建新实验 "${patch.expDir}"...`, key: 'loadConfig' })
       try {
         await loadConfigForExperiment(patch.expDir)
@@ -457,7 +464,7 @@ export default function TrainV2Page() {
     
     const criticalKeys = ['sr']
     const hasCritical = Object.keys(patch).some((k) => criticalKeys.includes(k))
-    if (hasCritical && workflowStatus.trainEpoch > 0 && workspaceRoot) {
+    if (hasCritical && workflowStatus.trainEpoch > 0 && expPath) {
       const newCfg = { ...config, ...patch }
       try {
         const text = await trainApi.readLocalText(`${expPath}/config.json`)
@@ -486,26 +493,46 @@ export default function TrainV2Page() {
       Notification.requestPermission().catch(() => undefined)
     }
     if (!config.trainsetDir) { message.warning('请先配置训练集路径'); return }
-    if (!workspaceRoot) { message.warning('工作区未初始化'); return }
+    if (!experimentKey) { message.warning('请先填写声音名称'); return }
     
-    trainStore.setRunning(qualifiedExpDir, true)
-    trainStore.setCurrentStep(qualifiedExpDir, 0)
+    trainStore.setRunning(experimentKey, true)
+    trainStore.setCurrentStep(experimentKey, 0)
     persistWorkflow({ preprocess: 'running' })
     updateStep(0, { status: 'process', log: '正在启动数据预处理...' })
     
     try {
-      const preResult = await trainApi.preprocessDataset(config.trainsetDir, qualifiedExpDir, config.sr, config.npProcess)
+      // 未建批时传声音名，由后端创建批次；已建批时传批次工作位，复用同一批次
+      const preResult = await trainApi.preprocessDataset(config.trainsetDir, workExpDir, config.sr, config.npProcess, config.ifF0)
       
       if (!preResult.ok) {
-        trainStore.setRunning(qualifiedExpDir, false)
+        trainStore.setRunning(experimentKey, false)
         updateStep(0, { status: 'error', log: `=== 数据处理启动失败 ===\n${preResult.message}` })
         persistWorkflow({ preprocess: 'error' })
         message.error({ content: '数据预处理启动失败，请查看日志', duration: 8 })
         return
       }
+
+      // 批次号在此刻才确定：绑定工作位，并解析它的绝对路径
+      const runDir = preResult.exp_dir || workExpDir
+      autoBoundVoiceRef.current = experimentKey
+      if (runDir !== workExpDir) setRunExpDir(runDir)
+      let runPath = runDir === workExpDir ? expPath : ''
+      if (!runPath) {
+        const { experimentPath } = await trainApi.getExperimentPath(runDir)
+        if (experimentPath) {
+          setResolvedPath({ dir: runDir, path: experimentPath })
+          runPath = experimentPath
+        }
+      }
+      if (!runPath) {
+        trainStore.setRunning(experimentKey, false)
+        updateStep(0, { status: 'error', log: '无法解析批次目录，请重试' })
+        persistWorkflow({ preprocess: 'error' })
+        return
+      }
       
       // Poll log until completion
-      const logPath = `${expPath}/preprocess.log`
+      const logPath = `${runPath}/preprocess.log`
       for (let i = 0; i < 300; i++) {
         await new Promise(r => setTimeout(r, 2000))
         try {
@@ -514,14 +541,16 @@ export default function TrainV2Page() {
             updateStep(0, { status: 'finish', log: logText })
             persistWorkflow({ preprocess: 'done' })
             message.success('数据预处理完成，请继续执行特征提取')
-            trainStore.setRunning(qualifiedExpDir, false)
+            trainStore.setRunning(experimentKey, false)
+            refreshBatchStatus()
+            void loadExperiments()
             return
           }
           if (logText.includes('Fail.') || logText.includes('Traceback') || logText.includes('错误')) {
             updateStep(0, { status: 'error', log: logText })
             persistWorkflow({ preprocess: 'error' })
             message.error({ content: '数据预处理失败，请查看日志', duration: 8 })
-            trainStore.setRunning(qualifiedExpDir, false)
+            trainStore.setRunning(experimentKey, false)
             return
           }
           // Update log display so user sees progress
@@ -533,9 +562,9 @@ export default function TrainV2Page() {
       updateStep(0, { status: 'error', log: '预处理超时（10 分钟）' })
       persistWorkflow({ preprocess: 'error' })
       message.error({ content: '数据预处理超时（10 分钟），请检查日志', duration: 8 })
-      trainStore.setRunning(qualifiedExpDir, false)
+      trainStore.setRunning(experimentKey, false)
     } catch (err) {
-      trainStore.setRunning(qualifiedExpDir, false)
+      trainStore.setRunning(experimentKey, false)
       updateStep(0, { status: 'error', log: String(err) })
       persistWorkflow({ preprocess: 'error' })
       message.error('数据预处理启动失败')
@@ -548,19 +577,24 @@ export default function TrainV2Page() {
       return
     }
     if (!config.ifF0) {
-      trainStore.setWorkflowStatus(qualifiedExpDir, { f0: 'done' })
+      trainStore.setWorkflowStatus(experimentKey, { f0: 'done' })
       message.info('当前模型不使用 F0，跳过 F0 特征提取')
+      return
+    }
+    if (!runExpDir || !expPath) {
+      message.warning('训练批次尚未就绪，请先完成数据预处理')
       return
     }
     setCurrentExtracting('f0')
     try {
-      const result = await trainApi.extractF0Features(config.npProcess, config.f0Method, qualifiedExpDir)
+      const result = await trainApi.extractF0Features(config.npProcess, config.f0Method, workExpDir)
       if (!result.ok || result.message.includes('Fail') || result.message.includes('错误')) {
-        trainStore.setWorkflowStatus(qualifiedExpDir, { f0: 'error' })
+        trainStore.setWorkflowStatus(experimentKey, { f0: 'error' })
         message.error({ content: `F0 特征提取启动失败：${result.message.slice(0, 100)}`, duration: 8 })
         setCurrentExtracting('none')
         return
       }
+      trainStore.setWorkflowStatus(experimentKey, { f0: 'running' })
       // Poll log until completion
       const logPath = `${expPath}/extract_f0_feature.log`
       for (let i = 0; i < 600; i++) {
@@ -575,21 +609,22 @@ export default function TrainV2Page() {
           updateStep(0, { log: displayLines, ...(percent !== undefined ? { percent } : {}) })
 
           if (logText.includes('all-feature-done')) {
-            trainStore.setWorkflowStatus(qualifiedExpDir, { f0: 'done' })
+            trainStore.setWorkflowStatus(experimentKey, { f0: 'done' })
+            refreshBatchStatus()
             message.success('F0 特征提取完成，请继续提取音频特征')
             return
           }
           if (logText.includes('Fail.') || logText.includes('f0fail') || logText.includes('Traceback')) {
-            trainStore.setWorkflowStatus(qualifiedExpDir, { f0: 'error' })
+            trainStore.setWorkflowStatus(experimentKey, { f0: 'error' })
             message.error({ content: `F0 特征提取失败，请查看日志`, duration: 8 })
             return
           }
         } catch { /* log not ready yet */ }
       }
-      trainStore.setWorkflowStatus(qualifiedExpDir, { f0: 'error' })
+      trainStore.setWorkflowStatus(experimentKey, { f0: 'error' })
       message.error({ content: 'F0 特征提取超时（10 分钟），请检查日志', duration: 8 })
     } catch (err) {
-      trainStore.setWorkflowStatus(qualifiedExpDir, { f0: 'error' })
+      trainStore.setWorkflowStatus(experimentKey, { f0: 'error' })
       message.error({ content: `F0 特征提取失败：${String(err).slice(0, 100)}`, duration: 8 })
     } finally {
       setCurrentExtracting('none')
@@ -606,15 +641,20 @@ export default function TrainV2Page() {
       message.warning('请先完成 F0 特征提取')
       return
     }
+    if (!runExpDir || !expPath) {
+      message.warning('训练批次尚未就绪，请先完成数据预处理')
+      return
+    }
     setCurrentExtracting('audio')
     try {
-      const result = await trainApi.extractAudioFeatures(config.gpus, qualifiedExpDir)
+      const result = await trainApi.extractAudioFeatures(config.gpus, workExpDir)
       if (!result.ok || result.message.includes('Fail') || result.message.includes('错误')) {
-        trainStore.setWorkflowStatus(qualifiedExpDir, { audio: 'error', features: 'error' })
+        trainStore.setWorkflowStatus(experimentKey, { audio: 'error', features: 'error' })
         message.error({ content: `音频特征提取启动失败：${result.message.slice(0, 100)}`, duration: 8 })
         setCurrentExtracting('none')
         return
       }
+      trainStore.setWorkflowStatus(experimentKey, { audio: 'running', features: 'running' })
       // Poll log until completion
       const logPath = `${expPath}/extract_audio_feature.log`
       for (let i = 0; i < 600; i++) {
@@ -629,21 +669,22 @@ export default function TrainV2Page() {
           updateStep(0, { log: displayLines, ...(percent !== undefined ? { percent } : {}) })
 
           if (logText.includes('all-feature-done')) {
-            trainStore.setWorkflowStatus(qualifiedExpDir, { audio: 'done', features: 'done' })
+            trainStore.setWorkflowStatus(experimentKey, { audio: 'done', features: 'done' })
+            refreshBatchStatus()
             message.success('音频特征提取完成，可以开始训练模型')
             return
           }
           if (logText.includes('Fail.') || logText.includes('Traceback') || logText.includes('nan')) {
-            trainStore.setWorkflowStatus(qualifiedExpDir, { audio: 'error', features: 'error' })
+            trainStore.setWorkflowStatus(experimentKey, { audio: 'error', features: 'error' })
             message.error({ content: '音频特征提取失败，请查看日志', duration: 8 })
             return
           }
         } catch { /* log not ready yet */ }
       }
-      trainStore.setWorkflowStatus(qualifiedExpDir, { audio: 'error', features: 'error' })
+      trainStore.setWorkflowStatus(experimentKey, { audio: 'error', features: 'error' })
       message.error({ content: '音频特征提取超时（10 分钟），请检查日志', duration: 8 })
     } catch (err) {
-      trainStore.setWorkflowStatus(qualifiedExpDir, { audio: 'error', features: 'error' })
+      trainStore.setWorkflowStatus(experimentKey, { audio: 'error', features: 'error' })
       message.error({ content: `音频特征提取失败：${String(err).slice(0, 100)}`, duration: 8 })
     } finally {
       setCurrentExtracting('none')
@@ -655,25 +696,30 @@ export default function TrainV2Page() {
       message.info('特征索引已构建完成')
       return
     }
-    trainStore.setRunning(qualifiedExpDir, true)
+    if (!runExpDir || !expPath) {
+      message.warning('训练批次尚未就绪，请先完成模型训练')
+      return
+    }
+    trainStore.setRunning(experimentKey, true)
     persistWorkflow({ index: 'running' })
     try {
-      const result = await trainApi.trainIndex(qualifiedExpDir)
+      const result = await trainApi.trainIndex(workExpDir)
       persistWorkflow({ index: result.ok ? 'done' : 'error' })
       if (result.ok) {
-        await trainApi.deleteFile(`${expPath}/total_fea.npy`).catch(() => {})
         message.success({ content: '训练流程全部完成！模型和索引已就绪，可以去转换试听了', duration: 8 })
         if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification('RVC 训练全部完成', { body: `实验 "${qualifiedExpDir}" 已完成，模型和索引已就绪！` })
+          new Notification('RVC 训练全部完成', { body: `批次 "${workExpDir}" 已完成，模型和索引已就绪！` })
         }
-        const recordId = trainStore.getCurrentRecordId(qualifiedExpDir)
+        const recordId = trainStore.getCurrentRecordId(experimentKey)
         if (recordId) {
           updateRecord(recordId, {
             status: 'completed',
             endTime: Date.now(),
-            indexPath: `logs/${qualifiedExpDir}/added_*.index`,
+            indexPath: `${workExpDir}/added_*.index`,
           })
         }
+        refreshBatchStatus()
+        void loadExperiments()
       } else {
         message.error({ content: `特征索引构建失败：${result.message.slice(0, 100)}`, duration: 10 })
       }
@@ -681,40 +727,47 @@ export default function TrainV2Page() {
       persistWorkflow({ index: 'error' })
       message.error({ content: `特征索引构建失败：${String(err).slice(0, 100)}`, duration: 10 })
     } finally {
-      trainStore.setRunning(qualifiedExpDir, false)
+      trainStore.setRunning(experimentKey, false)
     }
   }
 
   const runTrain = async () => {
     const featuresDone = config.ifF0 ? (workflowStatus.f0 === 'done' && workflowStatus.audio === 'done') : workflowStatus.audio === 'done'
     if (!featuresDone) { message.warning('请先完成特征提取'); return }
+    if (!runExpDir || !expPath) {
+      message.warning('训练批次尚未就绪，请先完成数据预处理与特征提取')
+      return
+    }
 
     const hasCheckpoints = await trainApi.getArtifactMatches(expPath, 'checkpoint')
     const isComplete = workflowStatus.trainEpoch >= config.totalEpoch && hasCheckpoints.length > 0
     const isContinue = hasCheckpoints.length > 0 && workflowStatus.trainEpoch > 0 && workflowStatus.trainEpoch < config.totalEpoch
 
     if (isComplete) {
-      // Full retrain: clean everything, start from scratch
-      await trainApi.clearTrainingArtifacts(qualifiedExpDir)
-      trainStore.clearExperiment(qualifiedExpDir)
-      message.success('已清理旧训练结果，开始全新训练')
+      // 重新训练只清掉旧索引；预处理产物是本次训练的输入，绝不能删
+      const cleaned = await trainApi.removeIndexArtifacts(workExpDir)
+      if (!cleaned.ok) {
+        message.error({ content: `清理旧索引失败：${cleaned.message}`, duration: 8 })
+        return
+      }
+      trainStore.clearExperiment(experimentKey)
+      message.success('已清理旧索引，开始全新训练')
     } else if (!isContinue) {
-      // Fresh training (no prior checkpoints): clean stale index files only
-      try {
-        const staleIndexFiles = await trainApi.getArtifactMatches(expPath, 'index')
-        for (const f of staleIndexFiles) {
-          await trainApi.deleteFile(`${expPath}/${f}`)
-        }
-      } catch { /* ignore */ }
+      // 全新训练：清掉可能残留的旧索引，避免与新索引共存
+      const cleaned = await trainApi.removeIndexArtifacts(workExpDir)
+      if (!cleaned.ok) {
+        message.error({ content: `清理旧索引失败：${cleaned.message}`, duration: 8 })
+        return
+      }
     }
 
-    trainStore.setRunning(qualifiedExpDir, true)
-    trainStore.setCurrentStep(qualifiedExpDir, 1)
+    trainStore.setRunning(experimentKey, true)
+    trainStore.setCurrentStep(experimentKey, 1)
     const startingEpoch = isContinue ? workflowStatus.trainEpoch : 0
     persistWorkflow({ train: 'running', trainEpoch: startingEpoch, totalEpoch: config.totalEpoch })
-    trainStore.setTrainProgress(qualifiedExpDir, { currentEpoch: startingEpoch, currentPercent: 0, latestLoss: '' })
+    trainStore.setTrainProgress(experimentKey, { currentEpoch: startingEpoch, currentPercent: 0, latestLoss: '' })
     const recordId = addRecord({
-      expDir: qualifiedExpDir, sr: config.sr,
+      expDir: workExpDir, sr: config.sr,
       f0Method: config.f0Method, totalEpoch: config.totalEpoch, completedEpoch: startingEpoch,
       status: 'running',
       config: {
@@ -724,13 +777,13 @@ export default function TrainV2Page() {
         ifSaveEveryWeights: config.ifSaveEveryWeights,
       },
     })
-    trainStore.setCurrentRecordId(qualifiedExpDir, recordId)
+    trainStore.setCurrentRecordId(experimentKey, recordId)
     const logPath = `${expPath}/train.log`
     openLogStream(1, logPath)
-    openProgressStream(qualifiedExpDir, config.totalEpoch)
+    openProgressStream(experimentKey, workExpDir, config.totalEpoch)
     updateStep(1, { status: 'process', log: '训练已启动，正在读取主日志...' })
     try {
-      const result = await trainApi.trainModel({ ...config, expDir: qualifiedExpDir })
+      const result = await trainApi.trainModel({ ...config, expDir: workExpDir })
       const modelMissing = result.message.includes('底模缺失')
       const failed = !result.ok || result.message.includes('Fail') || result.message.includes('错误')
       if (failed) {
@@ -742,9 +795,9 @@ export default function TrainV2Page() {
         } else {
           message.error('训练启动失败，请查看日志')
         }
-        const recordId = trainStore.getCurrentRecordId(qualifiedExpDir)
+        const recordId = trainStore.getCurrentRecordId(experimentKey)
         if (recordId) updateRecord(recordId, { status: 'failed', endTime: Date.now() })
-        trainStore.setRunning(qualifiedExpDir, false)
+        trainStore.setRunning(experimentKey, false)
       } else {
         updateStep(1, { status: 'process', log: `训练已启动\n${result.message}` })
         persistWorkflow({ train: 'running' })
@@ -760,22 +813,26 @@ export default function TrainV2Page() {
       } else {
         message.error('训练请求失败')
       }
-      const recordId = trainStore.getCurrentRecordId(qualifiedExpDir)
+      const recordId = trainStore.getCurrentRecordId(experimentKey)
       if (recordId) updateRecord(recordId, { status: 'failed', endTime: Date.now() })
-      trainStore.setRunning(qualifiedExpDir, false)
+      trainStore.setRunning(experimentKey, false)
     }
   }
 
   const stopTrain = async () => {
+    if (!runExpDir) {
+      message.warning('训练批次尚未就绪')
+      return
+    }
     try {
-      const result = await trainApi.stopTraining(qualifiedExpDir)
+      const result = await trainApi.stopTraining(workExpDir)
       if (result.ok) {
         message.success('训练已停止')
         closeAllStreams()
         persistWorkflow({ train: 'error' })
         updateStep(1, { status: 'error', log: '训练已被用户手动停止' })
-        trainStore.setRunning(qualifiedExpDir, false)
-        const recordId = trainStore.getCurrentRecordId(qualifiedExpDir)
+        trainStore.setRunning(experimentKey, false)
+        const recordId = trainStore.getCurrentRecordId(experimentKey)
         if (recordId) {
           updateRecord(recordId, {
             status: 'stopped', endTime: Date.now(), completedEpoch: trainProgress.currentEpoch,
@@ -787,6 +844,58 @@ export default function TrainV2Page() {
     } catch (err) {
       message.error(`停止训练失败：${String(err)}`)
     }
+  }
+
+  /** 把历史批次接为当前工作位。 */
+  const loadBatch = (batch: ExperimentSummary) => {
+    closeAllStreams()
+    trainStore.setRunning(experimentKey, false)
+    autoBoundVoiceRef.current = batch.voice
+    setRunExpDir(`${batch.voice}/${batch.run_id}`)
+  }
+
+  /** 新建批次模式：解除当前绑定，下一次数据预处理会创建新批次。 */
+  const startNewBatch = () => {
+    closeAllStreams()
+    trainStore.setRunning(experimentKey, false)
+    autoBoundVoiceRef.current = experimentKey
+    setRunExpDir('')
+    setUsage(null)
+    message.info('已切换到新建批次模式，执行「数据预处理」将创建新批次')
+  }
+
+  /** 删除批次：工作位 + 归档权重 + 批次清单；被成品引用时后端拒绝。 */
+  const deleteBatch = (batch: ExperimentSummary) => {
+    const qualified = `${batch.voice}/${batch.run_id}`
+    Modal.confirm({
+      title: '确认删除批次',
+      content: (
+        <Space orientation="vertical" size={8}>
+          <Text>确定要删除批次 <Text strong>"{formatRunDate(batch.run_id)}"</Text>（{qualified}）吗？</Text>
+          <Text type="secondary">将删除工作位、归档权重与批次清单，共 {formatBytes(batch.bytes)}。</Text>
+          <Text type="secondary">产物会先移入回收站，7 天后自动清除。已被成品引用的批次无法删除。</Text>
+        </Space>
+      ),
+      okText: '确认删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        const result = await trainApi.purgeRun(qualified)
+        if (!result.ok) {
+          message.error({ content: result.message, duration: 8 })
+          return
+        }
+        message.success({ content: `已删除批次，${formatBytes(result.freedBytes)} 移入回收站`, duration: 6 })
+        if (runExpDir === qualified) {
+          autoBoundVoiceRef.current = ''
+          setRunExpDir('')
+          setUsage(null)
+          trainStore.clearExperiment(experimentKey)
+        }
+        await loadExperiments()
+        refreshBatchStatus()
+      },
+    })
   }
 
   const showProgress = currentStep === 1 || trainProgress.currentEpoch > 0 || workflowStatus.trainEpoch > 0
@@ -804,7 +913,7 @@ export default function TrainV2Page() {
         type="info"
         showIcon
         message="训练流程"
-        description="三步完成：数据预处理 → 特征提取（先F0后音频） → 开始训练。训练完成记得构建特征索引。"
+        description="四步完成：数据预处理 → 特征提取（先 F0 后音频） → 训练模型 → 构建特征索引。索引完成后模型才能用于转换。"
       />
 
       <PreprocessStep
@@ -813,28 +922,17 @@ export default function TrainV2Page() {
         running={running && currentStep === 0}
         canRun={!running}
         experimentOptions={experimentOptions}
+        usage={usage}
         hasStartedWorkflow={running && currentStep === 0}
         onConfigChange={handleConfigChange}
         onExpDirChange={async (expDir: string) => {
-          if (experimentOptions.includes(expDir)) {
+          if (experiments.some((item) => item.voice === expDir)) {
             message.loading({ content: `正在加载实验 "${expDir}" 的配置...`, key: 'loadConfig' })
             try {
-              const loadedConfig = await loadConfigForExperiment(expDir)
-              const newQualified = `${loadedConfig.expDir}/v2_${loadedConfig.sr}`
-              const dto = await workflowApi.get(newQualified)
-              if (dto) {
-                trainStore.setWorkflowStatus(newQualified, {
-                  preprocess: dto.preprocess as typeof workflowStatus.preprocess,
-                  features: dto.features as typeof workflowStatus.features,
-                  train: dto.train as typeof workflowStatus.train,
-                  index: dto.index_status as typeof workflowStatus.index,
-                  trainEpoch: dto.train_epoch,
-                  totalEpoch: dto.total_epoch,
-                })
-                if (dto.train_epoch > 0) {
-                  trainStore.setRunning(newQualified, false)
-                }
-              }
+              await loadConfigForExperiment(expDir)
+              // 换声音即解除批次绑定，由批次列表自动接上该声音的最新批次
+              autoBoundVoiceRef.current = ''
+              setRunExpDir('')
               message.success({ content: `已加载实验 "${expDir}" 的配置`, key: 'loadConfig', duration: 2 })
             } catch (error) {
               console.error('Failed to load experiment config:', error)
@@ -870,6 +968,7 @@ export default function TrainV2Page() {
         ifF0={config.ifF0}
         running={running}
         currentExtracting={currentExtracting}
+        usage={usage}
         f0Percent={steps[0]?.percent}
         audioPercent={steps[0]?.percent}
         onExtractF0={runExtractF0}
@@ -885,39 +984,50 @@ export default function TrainV2Page() {
         totalEpoch={config.totalEpoch}
         running={running && currentStep === 1}
         canRun={!running && workflowStatus.audio === 'done'}
+        usage={usage}
         onConfigChange={handleConfigChange}
         onRun={runTrain}
         onStop={stopTrain}
         onBuildIndex={() => runTrainIndex(true)}
         onClearTraining={() => {
+          if (!runExpDir) {
+            message.warning('训练批次尚未就绪，暂无可清理的训练结果')
+            return
+          }
           Modal.confirm({
-            title: '确认清理训练结果',
+            title: '确认重置批次',
             content: (
               <Space orientation="vertical" size={8}>
-                <Text>确定要清理实验 <Text strong>"{qualifiedExpDir}"</Text> 的所有训练结果吗？</Text>
+                <Text>确定要重置批次 <Text strong>"{workExpDir}"</Text> 吗？</Text>
                 <ul style={{ margin: '8px 0', paddingLeft: 20 }}>
-                  <li>模型文件 (*.pth)</li>
+                  <li>模型检查点与最终模型 (*.pth)</li>
                   <li>特征索引 (added_*.index)</li>
-                  <li>训练日志和评估数据</li>
+                  <li>预处理切片、F0、HuBERT 特征与训练日志</li>
                 </ul>
-                <Text type="success">预处理数据（音频切片、F0、HuBERT 特征）将被保留，可直接重新训练。</Text>
-                <Text type="danger">此操作不可撤销。</Text>
+                <Text type="success">已归档的历史权重与批次清单会保留。</Text>
+                <Text type="secondary">产物会先移入回收站，7 天后自动清除。</Text>
               </Space>
             ),
-            okText: '确认清理',
+            okText: '确认重置',
             okType: 'danger',
             cancelText: '取消',
             onOk: async () => {
               try {
-                const result = await trainApi.clearTrainingArtifacts(qualifiedExpDir)
+                const result = await trainApi.resetExperiment(workExpDir)
                 if (result.ok) {
-                  message.success({ content: result.message, duration: 8 })
-                  trainStore.clearExperiment(qualifiedExpDir)
+                  message.success({
+                    content: `已重置批次，${(result.freedBytes / 1024 / 1024).toFixed(1)} MB 移入回收站，7 天后自动清除`,
+                    duration: 8,
+                  })
+                  trainStore.clearExperiment(experimentKey)
+                  setUsage(null)
+                  refreshBatchStatus()
+                  void loadExperiments()
                 } else {
                   message.error({ content: result.message, duration: 8 })
                 }
               } catch (error) {
-                message.error(`清理失败：${String(error)}`)
+                message.error(`重置失败：${String(error)}`)
               }
             },
           })
@@ -947,12 +1057,51 @@ export default function TrainV2Page() {
 
       <NextStepsGuide />
 
-      {experimentOptions.includes(qualifiedExpDir) && (
+      <Card
+        title={
+          <Space>
+            <FolderOpenOutlined />
+            <span>训练批次</span>
+          </Space>
+        }
+        size="small"
+        extra={
+          <Space>
+            <Button size="small" icon={<PlusOutlined />} onClick={startNewBatch} disabled={running}>
+              新建批次
+            </Button>
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              onClick={() => { void loadExperiments(); refreshBatchStatus() }}
+            >
+              刷新
+            </Button>
+          </Space>
+        }
+      >
+        <BatchTable
+          batches={voiceBatches}
+          currentRunKey={runExpDir}
+          running={running}
+          onLoad={loadBatch}
+          onDelete={deleteBatch}
+          emptyText="该声音还没有训练批次，执行数据预处理即可创建"
+        />
+        {usage && (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            当前批次可回收 {formatBytes(usage.reclaimable)}
+            {usage.reclaimed > 0 ? `，已自动回收 ${formatBytes(usage.reclaimed)}` : ''}
+          </Text>
+        )}
+      </Card>
+
+      {runExpDir && (
         <Card 
           title={
             <Space>
               <FolderOpenOutlined />
-              <span>实验目录结构</span>
+              <span>批次目录结构</span>
             </Space>
           }
           size="small"
@@ -963,40 +1112,46 @@ export default function TrainV2Page() {
               icon={<DeleteOutlined />}
               onClick={() => {
                 Modal.confirm({
-                  title: '确认删除训练结果',
+                  title: '确认重置批次',
                   content: (
                     <Space orientation="vertical" size={8}>
-                      <Text>确定要删除实验 <Text strong>"{qualifiedExpDir}"</Text> 的所有训练结果吗？</Text>
-                      <Text type="secondary">将删除以下内容：</Text>
+                      <Text>确定要重置批次 <Text strong>"{workExpDir}"</Text> 吗？</Text>
+                      <Text type="secondary">将清空工作位中的全部产物：</Text>
                       <ul style={{ margin: '8px 0', paddingLeft: 20 }}>
-                        <li>模型文件 (*.pth)</li>
+                        <li>模型检查点与最终模型 (*.pth)</li>
                         <li>特征索引 (added_*.index)</li>
-                        <li>训练日志和评估数据</li>
+                        <li>预处理切片、F0、HuBERT 特征与训练日志</li>
                       </ul>
-                      <Text type="success">预处理数据（音频切片、F0、HuBERT 特征）将被保留，可直接重新训练。</Text>
-                      <Text type="danger">此操作不可撤销。</Text>
+                      <Text type="success">已归档的历史权重与批次清单会保留。</Text>
+                      <Text type="secondary">产物会先移入回收站，7 天后自动清除。</Text>
                     </Space>
                   ),
-                  okText: '确认删除',
+                  okText: '确认重置',
                   okType: 'danger',
                   cancelText: '取消',
                   onOk: async () => {
                     try {
-                      const result = await trainApi.clearTrainingArtifacts(qualifiedExpDir)
+                      const result = await trainApi.resetExperiment(workExpDir)
                       if (result.ok) {
-                        message.success({ content: result.message, duration: 8 })
-                        trainStore.clearExperiment(qualifiedExpDir)
+                        message.success({
+                          content: `已重置批次，${(result.freedBytes / 1024 / 1024).toFixed(1)} MB 移入回收站，7 天后自动清除`,
+                          duration: 8,
+                        })
+                        trainStore.clearExperiment(experimentKey)
+                        setUsage(null)
+                        refreshBatchStatus()
+                        void loadExperiments()
                       } else {
                         message.error({ content: result.message, duration: 8 })
                       }
                     } catch (error) {
-                      message.error(`删除失败：${String(error)}`)
+                      message.error(`重置失败：${String(error)}`)
                     }
                   },
                 })
               }}
             >
-              删除训练结果
+              重置批次
             </Button>
           }
         >

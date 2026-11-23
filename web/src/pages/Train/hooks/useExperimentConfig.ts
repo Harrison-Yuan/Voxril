@@ -6,7 +6,6 @@ export interface ExperimentConfig {
   sr: string
   ifF0: boolean
   trainsetDir: string
-  spkId: number
   gpus: string
   npProcess: number
   f0Method: string
@@ -14,7 +13,6 @@ export interface ExperimentConfig {
   totalEpoch: number
   batchSize: number
   ifSaveLatest: boolean
-  ifCacheGpu: boolean
   ifSaveEveryWeights: boolean
 }
 
@@ -23,7 +21,6 @@ export const DEFAULT_CONFIG: ExperimentConfig = {
   sr: '40k',
   ifF0: true,
   trainsetDir: '',
-  spkId: 0,
   gpus: '0',
   npProcess: 4,
   f0Method: 'rmvpe',
@@ -31,7 +28,6 @@ export const DEFAULT_CONFIG: ExperimentConfig = {
   totalEpoch: 200,
   batchSize: 1,
   ifSaveLatest: true,
-  ifCacheGpu: false,
   ifSaveEveryWeights: false,
 }
 
@@ -41,7 +37,6 @@ function dtoToConfig(dto: ExperimentConfigDTO): ExperimentConfig {
     sr: dto.sr,
     ifF0: dto.if_f0,
     trainsetDir: dto.trainset_dir,
-    spkId: dto.spk_id,
     gpus: dto.gpus,
     npProcess: dto.np_process,
     f0Method: dto.f0_method,
@@ -49,7 +44,6 @@ function dtoToConfig(dto: ExperimentConfigDTO): ExperimentConfig {
     totalEpoch: dto.total_epoch,
     batchSize: dto.batch_size,
     ifSaveLatest: dto.if_save_latest,
-    ifCacheGpu: dto.if_cache_gpu,
     ifSaveEveryWeights: dto.if_save_every_weights,
   }
 }
@@ -60,7 +54,6 @@ function configToDto(config: ExperimentConfig): ExperimentConfigDTO {
     sr: config.sr,
     if_f0: config.ifF0,
     trainset_dir: config.trainsetDir,
-    spk_id: config.spkId,
     gpus: config.gpus,
     np_process: config.npProcess,
     f0_method: config.f0Method,
@@ -68,9 +61,7 @@ function configToDto(config: ExperimentConfig): ExperimentConfigDTO {
     total_epoch: config.totalEpoch,
     batch_size: config.batchSize,
     if_save_latest: config.ifSaveLatest,
-    if_cache_gpu: config.ifCacheGpu,
     if_save_every_weights: config.ifSaveEveryWeights,
-    version: 'v2',
   }
 }
 
@@ -92,14 +83,10 @@ export const useExperimentConfig = () => {
           }
         }
         
+        // 兜底：未记录上次实验时取后端排序后的第一份配置
         const configs = await configApi.getAll()
         if (configs.length > 0) {
-          const sortedConfigs = configs.sort((a, b) => {
-            const aTime = a.updated_at || a.created_at || 0
-            const bTime = b.updated_at || b.created_at || 0
-            return bTime - aTime
-          })
-          setConfig(dtoToConfig(sortedConfigs[0]))
+          setConfig(dtoToConfig(configs[0]))
         }
         
         setIsLoaded(true)

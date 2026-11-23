@@ -5,11 +5,11 @@
 //! - 共享配置类型和全局标志
 //! - 通用工具函数
 //!
-//! 引擎逻辑拆分到了 `engine.rs` 和 `mixer.rs`：
+//! 引擎逻辑拆分到了 `engine.rs`、`output_stage.rs` 和 `mixer.rs`：
 //! - engine.rs: 流构建 + 线程编排
+//! - output_stage.rs: 输出级（换歌/暂停同步、重采样、唯一播放时钟）
 //! - mixer.rs: 多路音频混音
 
-pub mod types;
 pub mod rvc;
 pub mod config;
 pub mod accompaniment;
@@ -26,19 +26,19 @@ pub mod resampler;
 pub mod thread;
 
 pub mod mixer;
+pub mod output_stage;
 pub mod engine;
 
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32};
+/// 独立伴奏输出流运行标志（引擎不运行时用 CPAL 直接输出）
+pub static STANDALONE_ACC_OUTPUT: AtomicBool = AtomicBool::new(false);
 use tauri::Emitter;
-
-/// 静音填充 buffer（输出端帧率对齐用）
-pub(crate) static SILENT_CHUNK: [f32; 960] = [0.0; 960];
 
 // 静态音高偏移量（半音数），由前端 set_live_f0_up_key 命令实时写入
 pub static F0_UP_KEY: AtomicI32 = AtomicI32::new(0);
 
-// 特征检索融合度，由前端 set_live_index_rate 实时写入
+// 原生 RVC 换声链路的特征检索融合度（直播链路不做换声，当前恒为 0）
 pub static INDEX_RATE: AtomicU32 = AtomicU32::new(0);
 
 // 麦克风静音标志 true=静音，前端通过 set_mic_mute 命令写入
@@ -50,24 +50,20 @@ pub static MIC_MUTED: AtomicBool = AtomicBool::new(false);
 pub static AUDIO_SOURCE: AtomicU32 = AtomicU32::new(0);
 
 // ── 直播唱歌配置（从 Tauri 命令透传） ──
+///
+/// 直播链路只做「实时修音 + 伴奏/翻唱播放」，不跑 RVC 换声，
+/// 因此不包含模型、索引、调性等字段。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LiveSingingConfig {
     pub input_device: String,
     pub output_device: String,
-    pub mode: String,
-    pub scale_root: i32,
-    pub scale_name: String,
-    pub model_path: String,
-    pub vec_path: String,
-    pub index_path: String,
     pub rmvpe_path: String,
     pub fcpe_path: String,
-    pub f0_score_path: String,
+    /// 歌词文件路径（空串表示该歌曲没有歌词）
+    pub lrc_path: String,
     pub f0_up_key: i32,
     pub accompaniment_path: String,
     pub cover_path: String,
-    pub duck_gain: f32,
-    pub index_rate: f64,
 }
 
 // ── Ring Buffer 工具 ──

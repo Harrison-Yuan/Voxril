@@ -4,8 +4,7 @@ use std::time::{Duration, Instant};
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, BufReader, AsyncSeekExt};
 use crate::utils::kill_orphan_multiprocessing;
-
-const EXPERIMENTS_DIR: &str = "experiments";
+use crate::workspace_layout::WorkspaceLayout;
 
 fn parse_duration_to_secs(dur: &str) -> f64 {
     let parts: Vec<&str> = dur.split(':').collect();
@@ -113,7 +112,7 @@ pub async fn stream_train_progress(
     // restart marker, so resumed training shows the correct (lower) epoch number.
     {
         let workspace_root = state.workspace_root.read().await;
-        let exp_path = workspace_root.join(EXPERIMENTS_DIR).join(&exp_dir);
+        let exp_path = WorkspaceLayout::detect(&*workspace_root).run_path(&exp_dir);
         let train_log_path = exp_path.join("train.log");
         drop(workspace_root);
         if train_log_path.exists() {
@@ -130,7 +129,7 @@ pub async fn stream_train_progress(
         tokio::time::sleep(Duration::from_secs(2)).await;
 
         let workspace_root = state.workspace_root.read().await;
-        let exp_path = workspace_root.join(EXPERIMENTS_DIR).join(&exp_dir);
+        let exp_path = WorkspaceLayout::detect(&*workspace_root).run_path(&exp_dir);
         let exp_path_str = exp_path.to_string_lossy();
         let train_log_path = exp_path.join("train.log");
         drop(workspace_root);

@@ -21,6 +21,16 @@ pub async fn get_workspace(state: State<'_, AppState>) -> Result<WorkspaceRespon
     })
 }
 
+/// 数据集根目录（分离后的人声/伴奏所在目录），由后端按布局解析。
+#[tauri::command]
+pub async fn get_datasets_root(state: State<'_, AppState>) -> Result<String, String> {
+    let workspace = state.workspace_root.read().await;
+    Ok(crate::workspace_layout::WorkspaceLayout::detect(&*workspace)
+        .datasets_root()
+        .to_string_lossy()
+        .to_string())
+}
+
 #[tauri::command]
 pub async fn set_workspace(
     workspace: String,

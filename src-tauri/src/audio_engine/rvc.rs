@@ -1146,31 +1146,3 @@ impl InferCore {
     }
 }
 
-// ══════════════════════════════════════════════════════════════════
-//  离线的全文件 F0 提取 — 替代 Python RMVPE 子进程
-// ══════════════════════════════════════════════════════════════════
-
-use crate::audio_engine::types::F0Profile;
-
-/// 对完整的 48kHz 音频文件提取 F0 音高曲线。
-///
-/// 处理流程（与 Python `infer/lib/rmvpe.py` 完全一致）：
-///   1. 48kHz → 16kHz 降采样（3:1 均值抽取）
-///   2. Mel 频谱计算 (N_FFT=2048, hop=160, n_mels=256)
-///   3. RMVPE ONNX 推理
-///   4. cents → Hz 解码
-///   5. 输出 F0Profile (hop=480 @ 48kHz，与 Python 端 np.repeat(f0_16k, 3) 等效)
-///
-/// 对于 3 分钟音频 (~864 万采样)，单次处理内存消耗约 10MB，无需分块。
-pub fn extract_f0_from_file(
-    audio_48k: &[f32],
-    rmvpe_session: &mut Session,
-) -> F0Profile {
-    let nf = audio_48k.len() / 480;  // hop=480 @ 48kHz 下的帧数
-    let f0 = rmpe_f0(audio_48k, nf.max(1), rmvpe_session);
-    F0Profile {
-        f0_curve: f0,
-        sample_rate: 48000,
-        hop_length: 480,
-    }
-}

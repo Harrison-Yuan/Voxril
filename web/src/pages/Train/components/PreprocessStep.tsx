@@ -1,7 +1,9 @@
 import { Card, Form, Input, Select, Slider, Button, Space, Typography, Row, Col, Alert, Tag, AutoComplete } from 'antd'
 import { DatabaseOutlined } from '@ant-design/icons'
-import type { WorkflowStage } from '../hooks/useTrainWorkflow'
+import type { WorkflowStage } from '@/store/trainStore'
 import type { ExperimentConfig } from '../hooks/useExperimentConfig'
+import type { RunUsage } from '../services/trainApi'
+import { formatBytes } from '@/lib/formatBytes'
 
 const { Text } = Typography
 
@@ -11,6 +13,7 @@ interface PreprocessStepProps {
   running: boolean
   canRun: boolean
   experimentOptions: string[]
+  usage?: RunUsage | null
   hasStartedWorkflow: boolean
   onConfigChange: (values: Partial<ExperimentConfig>) => void
   onExpDirChange: (expDir: string) => void
@@ -23,6 +26,8 @@ const statusTextMap: Record<WorkflowStage, string> = {
   running: '进行中',
   done: '已完成',
   error: '失败',
+  stale: '需重跑',
+  reclaimed: '已回收',
 }
 
 const statusColorMap: Record<WorkflowStage, string> = {
@@ -30,6 +35,8 @@ const statusColorMap: Record<WorkflowStage, string> = {
   running: 'processing',
   done: 'success',
   error: 'error',
+  stale: 'warning',
+  reclaimed: 'default',
 }
 
 export const PreprocessStep = ({
@@ -38,6 +45,7 @@ export const PreprocessStep = ({
   running,
   canRun,
   experimentOptions: _experimentOptions,
+  usage,
   hasStartedWorkflow,
   onConfigChange,
   onExpDirChange,
@@ -184,6 +192,12 @@ export const PreprocessStep = ({
           </Form.Item>
         </Col>
       </Row>
+
+      {usage && (
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          本步产出：{formatBytes(usage.preprocess)}
+        </Text>
+      )}
     </Card>
   )
 }

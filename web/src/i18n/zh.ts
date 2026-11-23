@@ -3,6 +3,7 @@ const zh = {
   'app.name': 'Voxril',
 
   // ── Navigation ──
+  'nav.cover': '一键翻唱',
   'nav.train': '训练模型',
   'nav.uvr': '人声分离',
   'nav.infer': '语音转换',
@@ -10,6 +11,7 @@ const zh = {
   'nav.live': 'AI 直播唱歌',
   'nav.models': '模型管理',
   'nav.settings': '设置',
+  'nav.advanced': '高级模式',
 
   // ── Common ──
   'common.start': '开始',
@@ -102,8 +104,8 @@ const zh = {
   'infer.subtitle': '选择已训练的声音模型，将音频转换成目标音色',
   'infer.start': '开始转换',
   'infer.converting': '转换中...',
-  'infer.merge': '合成伴奏',
-  'infer.merge_desc': '将转换后的人声与原伴奏合成最终输出',
+  'infer.merge': '合成作品',
+  'infer.merge_desc': '把转换出的新人声与原伴奏合成为完整作品',
   'infer.source_audio': '选择源音频',
   'infer.select_model': '选择模型',
   'infer.transpose': '变调',
@@ -182,11 +184,8 @@ const zh = {
   'live.pitch_shift_tooltip': '直播中可实时拖动，立即生效，无需重启。正数升高、负数降低。',
   'live.select_song_placeholder': '选择歌曲...',
   'live.no_songs_available': '暂无已分离歌曲，请先到「人声分离」页面处理',
-  'live.f0_ready': 'F0 ✓',
-  'live.f0_pending': '待 F0',
   'live.lyrics_ready': '歌词 ✓',
   'live.lyrics_pending': '待歌词',
-  'live.extract_f0': '提取 F0',
   'live.search_lyrics': '搜索歌词',
   'live.research_lyrics': '重新搜索',
   'live.console': '控制台',
@@ -212,18 +211,12 @@ const zh = {
   'live.how_it_works_step3': '<b>谱子查表</b>：按伴奏播放进度查找对应帧的目标 F0 音高。',
   'live.how_it_works_step4': '<b>Retune Speed 平滑</b>：0.15 系数一阶低通滤波，温柔拽回音高到目标值，保留自然颤音。',
   'live.how_it_works_step5': '<b>Phase Vocoder 移调</b>：FFT2048 → 瞬时频率插值 → Hermitian 共轭对称 → WOLA 合成。',
-  'live.f0_profile_title': '🎵 F0 谱子（可选）',
-  'live.f0_profile_desc_1': '通过「提取 F0」按钮提取原唱的 F0 曲线，保存为 .f0.json 文件。',
-  'live.f0_profile_desc_2': '修音引擎加载后按伴奏时间轴自动对齐，无需任何乐理知识。',
-  'live.f0_profile_desc_3': '不预处理也可以直播——仅实时 F0 检测+修音，无谱子参考。',
   'live.engine_log': '引擎日志',
   'live.stopped': '直播已停止',
   'live.stop_failed': '停止失败',
   'live.select_mic': '请选择输入设备（麦克风）',
   'live.engine_started': '修音引擎已启动',
   'live.start_failed_generic': '启动失败',
-  'live.f0_extract_done': 'F0 提取完成',
-  'live.f0_extract_failed': 'F0 提取失败',
 
   // ── Lyrics ──
   'lyrics.title': '歌词',

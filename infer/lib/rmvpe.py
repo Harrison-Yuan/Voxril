@@ -547,18 +547,23 @@ class RMVPEONNX:
         """
         Convert cents (logarithmic pitch unit) to Hz (frequency).
         
-        RMVPE model outputs pitch in cents, not Hz. This method converts
-        the cents values to Hz for use in audio processing.
-        
         Formula: f0_hz = 10 * 2^(cents / 1200)
         
+        ⚠️ _decode 用 0 表示"无声帧"，而合法 cents 区间是 1997.4~9177.4，0 不是音高。
+           若把 0 直接代入公式会得到 10Hz，下游 NSF 就把静音当成 10Hz 浊音合成，
+           在没人声的开头/停顿处产生宽带"雪花"底噪（训练侧 2b-f0nsf 同样受影响）。
+           因此 0（含 NaN）必须原样保留为 0，作为 unvoiced 标记。
+        
         Args:
-            cents: numpy array of pitch values in cents
+            cents: numpy array of pitch values in cents (0 = unvoiced)
             
         Returns:
-            numpy array of pitch values in Hz
+            numpy array of pitch values in Hz (0 = unvoiced)
         """
-        return 10 * (2 ** (cents / 1200))
+        cents = np.asarray(cents, dtype=np.float64)
+        with np.errstate(invalid="ignore"):
+            hz = 10.0 * np.power(2.0, cents / 1200.0)
+        return np.where(cents > 0, hz, 0.0)
 
 
 # Backward-compat alias

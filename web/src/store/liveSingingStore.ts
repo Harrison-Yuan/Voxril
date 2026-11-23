@@ -21,39 +21,24 @@ interface LiveSingingState {
   progressPercent: number
   progressMessage: string
   accompanimentKey: string
-  f0Profile: F0ProfileData | null
-  extractingF0: boolean
   extractingLyrics: boolean
 
   start: (request: {
     input_device: string
     output_device: string
-    model_path: string
     f0_up_key: number
     accompaniment_path: string
-    cover_path?: string    // 翻唱人声（RVC 转换结果）
-    duck_gain: number
-    index_path?: string   // 可选：前端主动传入 index 路径，避免后端扫描选错
-    mode?: string         // "correct" | "vc" (默认 vc)
+    cover_path: string    // 翻唱人声（预转换结果），无则为空串
+    lrc_path: string      // 歌词文件路径，无则为空串
   }) => Promise<{ ok: boolean; error?: string }>
   stop: () => Promise<boolean>
   checkStatus: () => Promise<void>
   reset: () => void
-  extractF0: (audioPath: string) => Promise<F0ProfileData | null>
   extractLyrics: (audioPath: string, force?: boolean) => Promise<{ lrcPath: string; lineCount: number } | null>
   searchLyrics: (query: string) => Promise<Array<{ id: number; name: string; artist: string }>>
   downloadLyrics: (songId: number, audioPath: string) => Promise<{ lrcPath: string; lineCount: number }>
   setAccompanimentPause: (paused: boolean) => Promise<void>
   getAccompanimentStatus: () => Promise<boolean>
-}
-
-interface F0ProfileData {
-  f0_curve: number[]
-  sample_rate: number
-  hop_length: number
-  duration_secs: number
-  frame_count: number
-  json_path: string
 }
 
 let metricUnlisten: UnlistenFn | null = null
@@ -141,8 +126,6 @@ export const useLiveSingingStore = create<LiveSingingState>((set) => ({
   progressPercent: 0,
   progressMessage: '',
   accompanimentKey: '',
-  f0Profile: null,
-  extractingF0: false,
   extractingLyrics: false,
 
   start: async (request: LiveSingingState['start'] extends (req: infer R) => any ? R : never): Promise<{ok: boolean; error?: string}> => {
@@ -277,18 +260,6 @@ export const useLiveSingingStore = create<LiveSingingState>((set) => ({
       progressMessage: '',
       accompanimentKey: '',
     })
-  },
-
-  extractF0: async (audioPath: string) => {
-    set({ extractingF0: true })
-    try {
-      const profile = await invoke<F0ProfileData>('extract_f0_profile', { audioPath })
-      set({ f0Profile: profile, extractingF0: false })
-      return profile
-    } catch (e) {
-      set({ extractingF0: false })
-      throw e
-    }
   },
 
   extractLyrics: async (audioPath: string, force?: boolean) => {

@@ -40,7 +40,7 @@ export default function UVRPage() {
   const { t, lang } = useI18n()
   const [form] = Form.useForm()
   const [selectedSongPath, setSelectedSongPath] = useState('')
-  const [workspaceRoot, setWorkspaceRoot] = useState('')
+  const [datasetsRoot, setDatasetsRoot] = useState('')
   const [aggValue, setAggValue] = useState(10)
 
   const loading = useUvrStore(s => s.loading)
@@ -54,11 +54,7 @@ export default function UVRPage() {
   const cancelSeparate = useUvrStore(s => s.cancel)
 
   useEffect(() => {
-    workspaceApi.getWorkspace().then(r => {
-      const root = (r.workspace || '').replace(/\/$/, '')
-      setWorkspaceRoot(root)
-      if (root) form.setFieldValue('outputDir', `${root}/separated`)
-    }).catch(() => {})
+    workspaceApi.getDatasetsRoot().then(setDatasetsRoot).catch(() => {})
   }, [])
 
   const selectFolder = async (field: 'inputPath' | 'outputDir', title: string) => {
@@ -81,8 +77,7 @@ export default function UVRPage() {
     await startSeparate({
       model_name: v.model_name,
       input_path: v.inputPath,
-      vocal_dir: v.outputDir ? `${v.outputDir}/vocals` : '',
-      instrumental_dir: v.outputDir ? `${v.outputDir}/instrumental` : '',
+      output_dir: v.outputDir || undefined,
       agg: v.agg, format: v.format,
     })
   }
@@ -138,7 +133,7 @@ export default function UVRPage() {
                   />
                 )}
                 <Form.Item label={t('uvr.output_dir')} name="outputDir">
-                  <Input placeholder={workspaceRoot ? `${t('common.default')}：${workspaceRoot}/separated/` : lang === 'zh' ? '默认输出到项目 opt/' : 'Default output to project opt/'} addonAfter={
+                  <Input placeholder={datasetsRoot ? `${t('common.default')}：${datasetsRoot}/` : (lang === 'zh' ? '留空则使用默认数据集目录' : 'Leave empty to use the default dataset folder')} addonAfter={
                     <Button type="link" size="small" icon={<FolderOpenOutlined />} onClick={() => selectFolder('outputDir', t('common.browse'))}>{t('common.browse')}</Button>
                   } />
                 </Form.Item>

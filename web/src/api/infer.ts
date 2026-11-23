@@ -45,12 +45,9 @@ export interface SeparatedSong {
   name: string
   instrumental_path: string
   vocal_path: string
-  f0_path: string
-  f0_exists: boolean
   lrc_exists: boolean
   lrc_path: string
   converted_path: string
-  stft_exists: boolean
 }
 
 export const inferApi = {
@@ -94,13 +91,11 @@ export const inferApi = {
   async mergeAudio(
     vocalPath: string,
     instrumentalPath: string,
-    outputDir: string,
     vocalGain: number = 1.0
   ): Promise<MergeResponse> {
     return invoke('merge_audio', {
       vocalPath,
       instrumentalPath,
-      outputDir,
       vocalGain,
     })
   },
@@ -205,5 +200,10 @@ export const inferApi = {
 
   async listSeparatedSongs(): Promise<SeparatedSong[]> {
     return invoke('list_separated_songs')
+  },
+
+  /** 列出数据集中的音频（kind: vocals | instrumental），目录由后端解析 */
+  async listDatasetAudio(kind: 'vocals' | 'instrumental'): Promise<{ files: { name: string; path: string }[] }> {
+    return invoke('list_dataset_audio', { kind })
   },
 }
