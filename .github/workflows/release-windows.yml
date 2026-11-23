@@ -1,30 +1,51 @@
-name: Release Windows (experimental)
+name: Release Windows
 
-# ⚠️ 预留工作流：Windows 适配尚未完成，手动触发、失败不影响 macOS 正式发版。
-# 待完成项：
-#   1. Python venv 路径（Scripts/python.exe）与 Windows 下的 Python 探测
-#   2. bin/windows-x64/ffmpeg.exe 入库
-#   3. 虚拟声卡路由（VB-Cable / WASAPI loopback）替代 BlackHole
-#   4. WebView2 / NSIS 打包与图标（.ico）
-#   5. tools/auto_setup_venv.py 的平台分支
+# 与 macOS 正式版一致：推送 v* tag 触发；也可在 Actions 页面手动指定 tag 重打。
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "已存在的 tag，例如 v0.3.0"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-windows-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  build-nsis:
-    name: Build Windows NSIS installer (experimental)
+  windows:
+    name: Windows (x64 · NSIS)
     runs-on: windows-latest
-    continue-on-error: true
+    timeout-minutes: 90
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Resolve version from tag
+        id: version
+        shell: bash
+        run: echo "value=${TAG#v}" >> "$GITHUB_OUTPUT"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
+        with:
+          package_json_file: package.json
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
@@ -40,21 +61,90 @@ jobs:
           key: windows-x64
 
       - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2" --locked
+        run: npm install -g @tauri-apps/cli@^2
+
+      # ffmpeg.exe 因超过 GitHub 单文件 100MB 限制未入库（见 .gitignore），
+      # 打包前在 CI 现取 BtbN 官方 win64 构建，仅抽取 ffmpeg.exe 放进伴生目录。
+      - name: Download bundled ffmpeg
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $dest = "src-tauri/bin/windows-x64"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          $zip = Join-Path $env:RUNNER_TEMP "ffmpeg-win64.zip"
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip"
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          $extract = Join-Path $env:RUNNER_TEMP "ffmpeg-win64"
+          if (Test-Path $extract) { Remove-Item -Recurse -Force $extract }
+          Expand-Archive -Path $zip -DestinationPath $extract
+          $ff = Get-ChildItem -Path $extract -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          if (-not $ff) { throw "解压后未找到 ffmpeg.exe" }
+          Copy-Item $ff.FullName -Destination (Join-Path $dest "ffmpeg.exe") -Force
+          Write-Output "ffmpeg.exe -> $dest ($((Get-Item (Join-Path $dest 'ffmpeg.exe')).Length) bytes)"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Build frontend
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm -C web run build
+        run: pnpm -C web run build
 
+      # 生成 CI 专用配置：版本号取 tag，并跳过本地 beforeBuildCommand。
+      - name: Prepare CI config
+        shell: bash
+        run: |
+          printf '{"version":"%s","build":{"beforeBuildCommand":""}}' \
+            "${{ steps.version.outputs.value }}" > "$RUNNER_TEMP/tauri.ci.conf.json"
+          cat "$RUNNER_TEMP/tauri.ci.conf.json"
+
+      # 失败时把日志尾部写进 Job Summary，并把第一条错误作为注解暴露出来。
       - name: Build NSIS
         working-directory: src-tauri
+        shell: bash
         run: |
-          tauri build --target x86_64-pc-windows-msvc --bundles nsis --config "{\"build\":{\"beforeBuildCommand\":\"\"}}"
+          set +e
+          tauri build \
+            --target x86_64-pc-windows-msvc \
+            --bundles nsis \
+            --config "$RUNNER_TEMP/tauri.ci.conf.json" 2>&1 | tee build.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "## ❌ Build failed (exit $status)"
+              echo '```'
+              tail -n 120 build.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            grep -i -m1 -E "error(\[|:)|failed|panic" build.log \
+              | while IFS= read -r line; do echo "::error title=build.log::${line}"; done
+            exit "$status"
+          fi
 
-      - name: Upload installer
-        uses: actions/upload-artifact@v4
+      - name: Generate SHA-256 checksums
+        shell: pwsh
+        run: |
+          $dir = "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis"
+          $exe = Get-ChildItem -Path $dir -Filter "*.exe" | Select-Object -First 1
+          if (-not $exe) { throw "未找到 NSIS 安装包" }
+          Push-Location $dir
+          $lines = Get-ChildItem -Filter "*.exe" | ForEach-Object {
+              $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+              "$h  $($_.Name)"
+          }
+          $lines | Set-Content -Path "SHA256SUMS.txt" -Encoding ascii
+          Pop-Location
+          Get-Content (Join-Path $dir "SHA256SUMS.txt")
+
+      # 与 macOS 正式 Release 合并到同一 tag：仅追加资产，不覆盖对方写好的正文。
+      # allow_updates 让两个平台并行发布时能安全地各自上传自己的产物。
+      - name: Publish release asset
+        uses: softprops/action-gh-release@v2
         with:
-          name: voxril-windows-experimental
-          path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
-          if-no-files-found: warn
+          tag_name: ${{ env.TAG }}
+          name: Voxril ${{ env.TAG }}
+          draft: false
+          prerelease: false
+          allow_updates: true
+          fail_on_unmatched_files: true
+          files: |
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/SHA256SUMS.txt

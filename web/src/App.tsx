@@ -15,6 +15,7 @@ import DesktopLyricsPage from './pages/DesktopLyrics'
 import SettingsPage from './pages/Settings'
 import ModelsPage from './pages/Models'
 import { antdTokens, antdComponentTokens } from './styles/tokens'
+import { initModelDownloadSync } from './store/modelDownloadStore'
 import { LocaleProvider, useI18n, type Lang } from './i18n'
 
 const antdLocales: Record<Lang, any> = { zh: zhCN, en: enUS }
@@ -37,6 +38,11 @@ function TauriEventRouter() {
 
 function AppInner() {
   const { lang } = useI18n()
+
+  // 全局订阅模型下载事件：进入模型页即可看到正在进行的下载进度
+  useEffect(() => {
+    void initModelDownloadSync()
+  }, [])
 
   return (
     <ConfigProvider

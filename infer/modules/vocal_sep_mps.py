@@ -39,6 +39,47 @@ def _emit_progress(msg, file_tag="", step="", current=0, total=0):
     sys.stdout.flush()
 
 
+def _ensure_model(model_name):
+    """统一模型下载入口：内置分离模型一律走 tools/check_download_models.py。
+
+    这样断点续传、互斥锁、下载源策略只维护一套，audio-separator 只负责加载。
+    """
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+    try:
+        from tools.check_download_models import UVR_MODELS_DEF, download_uvr_model
+    except Exception as exc:
+        logger.warning("统一模型下载器不可用，跳过预检查: %s", exc)
+        return
+
+    key = None
+    min_mb = 0
+    for k, meta in UVR_MODELS_DEF.items():
+        if meta.get("filename") == model_name:
+            key = k
+            min_mb = int(meta.get("min_mb", 0) or 0)
+            break
+    if key is None:
+        # 非内置模型（用户自备），保持原行为
+        return
+
+    model_path = os.path.join(_MODEL_DIR, model_name)
+    ready = os.path.exists(model_path) and (
+        not min_mb or os.path.getsize(model_path) >= min_mb * 1024 * 1024
+    )
+    if ready:
+        return
+
+    _emit_progress(f"检查/下载分离模型 {model_name} ...")
+    download_uvr_model(key)
+    if not (
+        os.path.exists(model_path)
+        and (not min_mb or os.path.getsize(model_path) >= min_mb * 1024 * 1024)
+    ):
+        raise RuntimeError(f"分离模型不完整: {model_name}，请在「模型管理」重新下载")
+
+
 def _get_separator(model_name=None):
     global _SEPARATOR
     
@@ -50,6 +91,9 @@ def _get_separator(model_name=None):
             return _SEPARATOR
         else:
             _SEPARATOR = None
+
+    # 统一先由本项目下载器确保模型完整，避免 audio-separator 自行下载半成品
+    _ensure_model(target_model)
 
     model_path = os.path.join(_MODEL_DIR, target_model)
     if not os.path.exists(model_path):

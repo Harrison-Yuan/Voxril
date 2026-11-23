@@ -1,6 +1,6 @@
 [package]
 name = "voxril"
-version = "0.2.0"
+version = "0.3.0"
 description = "Voxril - AI Voice Conversion & Training on macOS"
 authors = ["RVC Team"]
 license = "PolyForm-Noncommercial-1.0.0"
@@ -45,7 +45,6 @@ ringbuf = "0.3"
 hound = "3.5"
 symphonia = { version = "0.5", features = ["all"] }
 num_cpus = "1"
-ort = { version = "=2.0.0-rc.12", features = ["copy-dylibs"] }
 rustfft = "6.2"
 log = "0.4"
 reqwest = { version = "0.12", features = ["json", "cookies", "rustls-tls"], default-features = false }
@@ -56,6 +55,14 @@ rubato = "0.15"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"
 libc = "0.2"
+
+# ONNX Runtime：macOS 打包时随构建复制 dylib；Windows 改为运行时加载
+# （cn 网络无法访问 ort 的预编译下载 CDN，改用 Python 环境自带的 onnxruntime.dll）
+[target.'cfg(target_os = "windows")'.dependencies]
+ort = { version = "=2.0.0-rc.12", features = ["load-dynamic"] }
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+ort = { version = "=2.0.0-rc.12", features = ["copy-dylibs"] }
 
 [features]
 default = ["custom-protocol"]

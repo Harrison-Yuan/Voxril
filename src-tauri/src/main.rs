@@ -9,6 +9,7 @@ mod download_settings;
 #[cfg(target_os = "macos")]
 mod dock_menu;
 mod events;
+mod model_download;
 mod os_integration;
 mod platform;
 mod process_killer;
@@ -36,6 +37,41 @@ impl Drop for AppLock {
     }
 }
 
+/// Windows 下 ort 使用 load-dynamic 模式，需要 ORT_DYLIB_PATH 指向
+/// onnxruntime.dll。优先复用 Python 环境自带的 DLL，避免依赖外网 CDN。
+#[cfg(target_os = "windows")]
+fn setup_onnxruntime_dylib() {
+    if std::env::var_os("ORT_DYLIB_PATH").is_some() {
+        return;
+    }
+    let site_pkg = PathBuf::from("Lib").join("site-packages").join("onnxruntime").join("capi").join("onnxruntime.dll");
+    let mut candidates = Vec::new();
+    if let Some(data_dir) = dirs::data_dir() {
+        candidates.push(data_dir.join("com.rvc.webui").join("venv").join(&site_pkg));
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.push(cwd.join(".venv").join(&site_pkg));
+        candidates.push(cwd.join("venv").join(&site_pkg));
+        if let Some(parent) = cwd.parent() {
+            candidates.push(parent.join(".venv").join(&site_pkg));
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("onnxruntime.dll"));
+        }
+    }
+    if let Some(path) = candidates.into_iter().find(|p| p.exists()) {
+        std::env::set_var("ORT_DYLIB_PATH", &path);
+        eprintln!("[ORT] 使用 {}", path.display());
+    } else {
+        eprintln!("[ORT] 未找到 onnxruntime.dll，实时变声功能不可用");
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn setup_onnxruntime_dylib() {}
+
 #[tokio::main]
 async fn main() {
     // ⚠️ 子命令路由：`voxril decode-audio --input ... --sr ...`
@@ -59,11 +95,7 @@ async fn main() {
     if lock_path.exists() {
         let stale = if let Ok(content) = std::fs::read_to_string(&lock_path) {
             if let Ok(pid) = content.trim().parse::<u32>() {
-                std::process::Command::new("kill")
-                    .args(["-0", &pid.to_string()]) // kill -0 只检测进程存在性
-                    .output()
-                    .map(|o| !o.status.success())
-                    .unwrap_or(true)
+                !crate::platform::process_alive(pid)
             } else { true }
         } else { true };
         if stale {
@@ -75,13 +107,21 @@ async fn main() {
             let _ = f.write_all(format!("{}", std::process::id()).as_bytes());
             Some(AppLock { path: lock_path })
         }
-        Err(_) => {
-            eprintln!("Voxril 已在运行中");
-            std::process::exit(0);
+        Err(e) => {
+            if lock_path.exists() {
+                // 另一个实例确实持有锁
+                eprintln!("Voxril 已在运行中");
+                std::process::exit(0);
+            }
+            // 目录/文件不可写（受限环境）时降级为不加锁启动，避免完全无法打开
+            eprintln!("[启动] 无法创建单实例锁 {:?}: {}，继续启动", lock_path, e);
+            None
         }
     };
 
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
+    setup_onnxruntime_dylib();
 
     let app_state = AppState::new().await.expect("Failed to initialize app state");
     let project_root = app_state.project_root.clone();
@@ -101,7 +141,10 @@ async fn main() {
 
             let handle = app.handle().clone();
               let executor = Arc::new(python::PythonExecutor::new(project_root, data_dir.clone()));
-              let model_executor = executor.clone();
+              let downloader = {
+                  let state = handle.state::<AppState>();
+                  state.model_downloader.clone()
+              };
 
               // Cleanup live singing + download processes on window close
               let handle_clone = handle.clone();
@@ -155,35 +198,15 @@ async fn main() {
                      })
                      .await;
 
-                 let cleanup_h = handle.clone();
-                 let mut clean_args = vec!["clean".to_string()];
-                 clean_args.extend(download_args.clone());
-                 let _ = model_executor
-                     .run_script_streaming(
-                         "tools/check_download_models.py",
-                         clean_args,
-                         move |line| {
-                             if line.starts_with("[MODEL]") {
-                                 let _ = cleanup_h.emit("model-download-log", line);
-                             }
-                         },
-                     )
-                     .await;
+                 let cleanup_args = {
+                     let mut args = vec!["clean".to_string()];
+                     args.extend(download_args.clone());
+                     args
+                 };
+                 let _ = downloader.run(&handle, cleanup_args, None).await;
 
-                 let model_h = handle.clone();
-                 let done_h = handle.clone();
-                 let _ = model_executor
-                     .run_script_streaming(
-                         "tools/check_download_models.py",
-                         download_args,
-                         move |line| {
-                             if line.starts_with("[MODEL]") || line.starts_with("[DONE]") {
-                                 let _ = model_h.emit("model-download-log", line);
-                             }
-                         },
-                     )
-                     .await;
-                 let _ = done_h.emit("model-download-done", ());
+                 let _ = downloader.run(&handle, download_args, None).await;
+                 let _ = handle.emit("model-download-done", ());
              });
             Ok(())
         })
@@ -231,6 +254,7 @@ async fn main() {
             commands::infer::delete_output,
             commands::infer::import_model,
             commands::infer::get_base_models_status,
+            commands::infer::get_active_model_download,
             commands::infer::download_base_model,
             commands::infer::delete_base_model,
             commands::infer::get_model_storage_paths,

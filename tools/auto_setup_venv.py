@@ -5,6 +5,7 @@
 """
 import argparse
 import os
+import shutil
 import sys
 import subprocess
 import platform
@@ -79,22 +80,60 @@ def get_app_data_dir():
     home = Path.home()
     if platform.system() == "Darwin":
         return home / "Library" / "Application Support" / "com.rvc.webui"
+    if platform.system() == "Windows":
+        base = os.environ.get("APPDATA")
+        if base:
+            return Path(base) / "com.rvc.webui"
+        return home / "AppData" / "Roaming" / "com.rvc.webui"
     return home / ".rvc-webui"
+
+
+def venv_python_path(venv_path: Path) -> Path:
+    """venv 内 Python 可执行文件路径（Windows 为 Scripts/python.exe）。"""
+    if platform.system() == "Windows":
+        return venv_path / "Scripts" / "python.exe"
+    return venv_path / "bin" / "python"
 
 
 def find_python():
     """Find the best Python 3.10+ interpreter.
-    Priority: Homebrew → existing venv → sys.executable.
+    Priority (Windows): 3.12/3.11/3.10 install dirs → app venv → sys.executable.
+    Priority (macOS): Homebrew → existing venv → sys.executable.
     """
     candidates = []
-    # Homebrew paths
-    for ver in ["3.12", "3.11", "3.10"]:
-        for base in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/local/Homebrew/bin"]:
-            candidates.append(Path(base) / f"python{ver}")
-    # Existing app venv
-    candidates.append(get_app_data_dir() / "venv/bin/python")
-    # Current interpreter as fallback
-    candidates.append(Path(sys.executable))
+    if platform.system() == "Windows":
+        local = os.environ.get("LOCALAPPDATA")
+        if local:
+            for ver in ["312", "311", "310"]:
+                candidates.append(
+                    Path(local) / "Programs" / "Python" / f"Python{ver}" / "python.exe"
+                )
+        for ver in ["312", "311", "310"]:
+            candidates.append(Path(f"C:/Python{ver}/python.exe"))
+        # py launcher（若存在）
+        py_launcher = shutil.which("py")
+        if py_launcher:
+            for ver in ["3.12", "3.11", "3.10"]:
+                try:
+                    probe = subprocess.run(
+                        [py_launcher, f"-{ver}", "-c", "import sys; print(sys.executable)"],
+                        capture_output=True, text=True, timeout=10,
+                    )
+                    if probe.returncode == 0 and probe.stdout.strip():
+                        candidates.append(Path(probe.stdout.strip()))
+                except Exception:
+                    pass
+        candidates.append(venv_python_path(get_app_data_dir() / "venv"))
+        candidates.append(Path(sys.executable))
+    else:
+        # Homebrew paths
+        for ver in ["3.12", "3.11", "3.10"]:
+            for base in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/local/Homebrew/bin"]:
+                candidates.append(Path(base) / f"python{ver}")
+        # Existing app venv
+        candidates.append(venv_python_path(get_app_data_dir() / "venv"))
+        # Current interpreter as fallback
+        candidates.append(Path(sys.executable))
 
     seen = set()
     for cand in candidates:
@@ -140,7 +179,7 @@ def check_python(python_bin):
 
 def setup_venv(python_bin: Path, venv_path: Path):
     if venv_path.exists():
-        existing = venv_path / "bin" / "python"
+        existing = venv_python_path(venv_path)
         if existing.exists():
             result = subprocess.run(
                 [str(existing), "--version"],
@@ -180,13 +219,13 @@ def setup_venv(python_bin: Path, venv_path: Path):
     if result.returncode != 0:
         emit(f"创建虚拟环境失败: {result.stderr.strip()}")
         return False
-    venv_python = venv_path / "bin" / "python"
+    venv_python = venv_python_path(venv_path)
     emit(f"虚拟环境已创建: {venv_python}")
     return True
 
 
 def install_requirements(venv_path: Path, req_path: Path):
-    python_bin = venv_path / "bin" / "python"
+    python_bin = venv_python_path(venv_path)
     indexes = pip_indexes()
 
     emit("pip 源: " + " → ".join(index_label(i) for i in indexes))
@@ -228,7 +267,7 @@ def install_requirements(venv_path: Path, req_path: Path):
 
 
 def verify_imports(venv_path: Path):
-    python_bin = venv_path / "bin" / "python"
+    python_bin = venv_python_path(venv_path)
     key_packages = [
         "torch",
         "torchaudio",
@@ -301,9 +340,9 @@ def main():
     installed_flag = venv_path / ".installed"
     need_full_install = venv_was_created or not installed_flag.exists()
     if need_full_install:
-        # 优先使用 requirements.lock（精确版本锁定），回退到 requirements.txt
+        # Windows 的 requirements.lock 含 macOS 专用轮子（mlx 等），直接使用 requirements.txt
         lock_path = script_dir / "requirements.lock"
-        if lock_path.exists():
+        if platform.system() != "Windows" and lock_path.exists():
             emit(f"使用精确版本锁文件安装依赖 ({lock_path.name})...")
             if not install_requirements(venv_path, lock_path):
                 # lock 安装失败时回退到宽松版本
@@ -311,14 +350,14 @@ def main():
                 if not install_requirements(venv_path, req_path):
                     sys.exit(1)
         else:
-            emit("未找到 requirements.lock，使用 requirements.txt（版本可能与开发环境不一致）")
+            emit("使用 requirements.txt 安装依赖（含平台条件标记）...")
             if not install_requirements(venv_path, req_path):
                 sys.exit(1)
         installed_flag.write_text("")
 
-    # ⚠️ 每次启动都升级 certifi，解决 macOS 上 Python SSL 证书过旧的问题
+    # ⚠️ 每次启动都升级 certifi，解决 Python SSL 证书过旧的问题
     # 见: SSL: UNEXPECTED_EOF_WHILE_READING（GitHub API 连接失败）
-    venv_python = venv_path / "bin" / "python"
+    venv_python = venv_python_path(venv_path)
     emit("正在更新 SSL 证书...")
     for index_url in pip_indexes():
         result = subprocess.run(
@@ -335,7 +374,7 @@ def main():
     missing = verify_imports(venv_path)
     if missing:
         emit(f"以下包导入失败: {', '.join(missing)}，正尝试安装缺失包...")
-        venv_python = venv_path / "bin" / "python"
+        venv_python = venv_python_path(venv_path)
         pip_name_map = {
             "audio_separator": "audio-separator",
         }

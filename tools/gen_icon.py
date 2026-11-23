@@ -32,6 +32,7 @@ STOPS = [                     # 对角渐变色标
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ICON_PNG = os.path.join(ROOT, "src-tauri", "icons", "icon.png")
 ICON_ICNS = os.path.join(ROOT, "src-tauri", "icons", "icon.icns")
+ICON_ICO = os.path.join(ROOT, "src-tauri", "icons", "icon.ico")
 
 
 def lerp(a: float, b: float, t: float) -> float:
@@ -148,17 +149,32 @@ def render(size: int) -> bytearray:
     return rows
 
 
-def write_png(path: str, size: int, raw: bytes) -> None:
+def png_bytes(size: int, raw: bytes) -> bytes:
     def chunk(tag: bytes, data: bytes) -> bytes:
         return (struct.pack(">I", len(data)) + tag + data
                 + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
 
     ihdr = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", ihdr)
+            + chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+            + chunk(b"IEND", b""))
+
+
+def write_png(path: str, size: int, raw: bytes) -> None:
     with open(path, "wb") as f:
-        f.write(b"\x89PNG\r\n\x1a\n")
-        f.write(chunk(b"IHDR", ihdr))
-        f.write(chunk(b"IDAT", zlib.compress(bytes(raw), 9)))
-        f.write(chunk(b"IEND", b""))
+        f.write(png_bytes(size, raw))
+
+
+def write_ico(path: str, size: int, png: bytes) -> None:
+    """写出单尺寸 ICO（内嵌 PNG，Windows Vista+ 支持）。"""
+    dim = 0 if size >= 256 else size  # 0 表示 256
+    header = struct.pack("<HHH", 0, 1, 1)
+    entry = struct.pack("<BBBBHHII", dim, dim, 0, 0, 1, 32, len(png), 22)
+    with open(path, "wb") as f:
+        f.write(header)
+        f.write(entry)
+        f.write(png)
 
 
 def make_icns(png_path: str, icns_path: str) -> bool:
@@ -198,6 +214,11 @@ def main() -> None:
     raw = render(SIZE)
     write_png(ICON_PNG, SIZE, raw)
     print(f"[icon] 已生成 {ICON_PNG} ({SIZE}x{SIZE}) 用时 {time.time() - t0:.1f}s")
+
+    # Windows 打包需要多分辨率 ICO（这里输出 256x256，足够 NSIS/任务栏使用）
+    ico_size = 256
+    write_ico(ICON_ICO, ico_size, png_bytes(ico_size, render(ico_size)))
+    print(f"[icon] 已生成 {ICON_ICO} ({ico_size}x{ico_size})")
 
     if make_icns(ICON_PNG, ICON_ICNS):
         print(f"[icon] 已生成 {ICON_ICNS}")

@@ -134,12 +134,12 @@ pub async fn stream_train_progress(
         let train_log_path = exp_path.join("train.log");
         drop(workspace_root);
 
-        let output = tokio::process::Command::new("pgrep")
-            .args(&["-f", &format!("train.py.*{}", exp_path_str)])
-            .output()
-            .await;
-
-        let is_running = output.map(|o| o.status.success() && !o.stdout.is_empty()).unwrap_or(false);
+        let pattern = exp_path_str.to_string();
+        let is_running = tokio::task::spawn_blocking(move || {
+            crate::process_killer::is_process_running(&pattern)
+        })
+        .await
+        .unwrap_or(false);
 
         if train_log_path.exists() {
             if last_epoch == 0 && first_epoch_at.is_none() {

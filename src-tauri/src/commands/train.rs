@@ -1028,11 +1028,7 @@ pub async fn train_model(
         let task = state.active_heavy_task.lock().await;
         if let Some(ref running) = *task {
             // 检查训练进程是否实际存活，如果已死则自动清除僵尸锁
-            let alive = std::process::Command::new("pgrep")
-                .args(["-f", "train\\.py"])
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false);
+            let alive = crate::process_killer::is_process_running("train.py");
             if !alive {
                 drop(task);
                 let mut lock = state.active_heavy_task.lock().await;
@@ -1325,12 +1321,8 @@ pub async fn train_model(
         let mut miss_streak = 0u32;
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-            // 使用 pgrep 检查 train.py 进程是否存活（与 get_train_status 一致）
-            let alive = std::process::Command::new("pgrep")
-                .args(["-f", &format!("train.py.*{}", exp_path_str_monitor)])
-                .output()
-                .map(|o| o.status.success() && !o.stdout.is_empty())
-                .unwrap_or(false);
+            // 检查 train.py 进程是否存活（与 get_train_status 一致）
+            let alive = crate::process_killer::is_process_running(&exp_path_str_monitor);
             if alive {
                 miss_streak = 0;
                 continue;
@@ -1379,7 +1371,7 @@ pub async fn stop_training(
     drop(workspace_root);
 
     // ── 礼貌停止训练进程（SIGTERM → 轮询 8s → SIGKILL）
-    let pattern = format!("train.py.*{}", exp_path_str);
+    let pattern = exp_path_str.clone();
     let gracefully_exited = crate::process_killer::kill_by_pattern(&pattern, 8);
     crate::process_killer::kill_by_pattern("torch.distributed", 0);
     crate::process_killer::kill_multiprocessing_spawn();
@@ -1603,18 +1595,11 @@ pub async fn get_train_status(
     exp_dir: String,
     state: State<'_, AppState>,
 ) -> Result<TrainStatusResponse, String> {
-    use std::process::Command;
-
     let workspace_root = state.workspace_root.read().await;
     let exp_path = run_path_for(&workspace_root, &exp_dir);
     let exp_path_str = exp_path.to_string_lossy();
 
-    let output = Command::new("pgrep")
-        .args(&["-f", &format!("train.py.*{}", exp_path_str)])
-        .output()
-        .map_err(|e| format!("Failed to check training status: {}", e))?;
-
-    let is_running = output.status.success() && !output.stdout.is_empty();
+    let is_running = crate::process_killer::is_process_running(&exp_path_str);
 
     let mut current_epoch = 0i32;
     let mut total_epoch = 0i32;

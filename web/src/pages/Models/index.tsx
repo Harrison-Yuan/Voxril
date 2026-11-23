@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Typography, Space, Button, Table, Modal, Input, message, Progress, Tag, Alert, Tabs } from 'antd'
+import { listen } from '@tauri-apps/api/event'
 import {
   AppstoreOutlined, DownloadOutlined, DeleteOutlined,
   CloudDownloadOutlined,
@@ -104,10 +105,9 @@ export default function ModelsPage() {
 
   const isDownloading = useModelDownloadStore(s => s.isDownloading)
   const startDownload = useModelDownloadStore(s => s.startDownload)
-  const updateLog = useModelDownloadStore(s => s.updateLog)
-  const updateProgress = useModelDownloadStore(s => s.updateProgress)
   const finishDownload = useModelDownloadStore(s => s.finishDownload)
   const getDownloadItem = useModelDownloadStore(s => s.getDownloadItem)
+  const completedAt = useModelDownloadStore(s => s.completedAt)
   // Subscribe to all downloads so the table re-renders on progress changes
   void useModelDownloadStore(s => s.downloads)
 
@@ -115,9 +115,25 @@ export default function ModelsPage() {
     loadAll()
   }, [])
 
-  const loadAll = async () => {
-    setLoading(true)
-    setBaseModelsLoading(true)
+  // 启动自检整批下载结束后刷新模型状态（进度本身由全局订阅实时同步）
+  useEffect(() => {
+    let unlisten: (() => void) | undefined
+    listen('model-download-done', () => { void loadAll() }).then(fn => { unlisten = fn })
+    return () => unlisten?.()
+  }, [])
+
+  // 单个模型下载完成后静默刷新一次状态，避免表格闪烁
+  useEffect(() => {
+    if (!completedAt) return
+    const timer = setTimeout(() => { void loadAll(true) }, 600)
+    return () => clearTimeout(timer)
+  }, [completedAt])
+
+  const loadAll = async (silent = false) => {
+    if (!silent) {
+      setLoading(true)
+      setBaseModelsLoading(true)
+    }
     try {
       const [modelsList, , baseStatus, paths, runs] = await Promise.all([
         inferApi.listModels(),
@@ -130,11 +146,17 @@ export default function ModelsPage() {
       setExperiments(runs)
       setBaseModels(baseStatus)
       setStoragePaths(paths)
+
+      // 进入页面时若已有下载在跑（如启动自检），直接恢复其进度显示
+      const active = await inferApi.getActiveModelDownload().catch(() => null)
+      if (active) startDownload(active, BASE_MODEL_META[active]?.name || active)
     } catch {
-      message.error('加载模型列表失败')
+      if (!silent) message.error('加载模型列表失败')
     } finally {
-      setLoading(false)
-      setBaseModelsLoading(false)
+      if (!silent) {
+        setLoading(false)
+        setBaseModelsLoading(false)
+      }
     }
   }
 
@@ -330,20 +352,11 @@ export default function ModelsPage() {
     const name = BASE_MODEL_META[modelId]?.name || modelId
     startDownload(modelId, name)
     try {
-      const ok = await inferApi.downloadBaseModel(modelId, (prog) => {
-        updateLog(modelId, prog.message)
-        // 解析进度：优先用后端 percent 字段；同时从消息行解析已下载 MB
-        // Python 输出格式: `[MODEL] 下载中 xxx ... 50% (123MB)`
-        let pct = prog.percent > 0 ? prog.percent : -1
-        let mb = 0
-        const pctMatch = prog.message.match(/(\d+)%/)
-        const mbMatch = prog.message.match(/(\d+(?:\.\d+)?)MB\)/)
-        if (pctMatch) pct = parseInt(pctMatch[1], 10)
-        if (mbMatch) mb = parseFloat(mbMatch[1])
-        if (pct >= 0 || mb > 0) updateProgress(modelId, pct, mb)
-      })
+      // 下载进度由全局订阅同步到此模型条目
+      const ok = await inferApi.downloadBaseModel(modelId)
       if (ok) {
         message.success(`${name} 下载完成`)
+        finishDownload(modelId)
         loadAll()
       } else {
         // ok 为 false 但无具体错误信息，从日志中取最后一条
@@ -536,7 +549,7 @@ export default function ModelsPage() {
           tabBarStyle={{ padding: '0 20px', marginBottom: 0 }}
           tabBarExtraContent={
             <Space>
-              <Button size="small" onClick={loadAll} loading={loading || baseModelsLoading}>刷新</Button>
+              <Button size="small" onClick={() => loadAll()} loading={loading || baseModelsLoading}>刷新</Button>
             </Space>
           }
         />

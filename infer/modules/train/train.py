@@ -125,8 +125,9 @@ def main():
         print("NO GPU DETECTED: falling back to CPU - this may take a while")
         n_gpus = 1
 
-    # macOS MPS: avoid multiprocessing which causes issues with Metal
-    if n_gpus == 1 and sys.platform == "darwin":
+    # macOS MPS / Windows: avoid multiprocessing which causes issues with Metal
+    # and with the spawn start method (each worker would re-import the script).
+    if n_gpus == 1 and sys.platform in ("darwin", "win32"):
         os.environ["MASTER_ADDR"] = "localhost"
         os.environ["MASTER_PORT"] = str(randint(20000, 55555))
         logger = utils.get_logger(hps.model_dir)

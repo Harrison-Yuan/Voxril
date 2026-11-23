@@ -140,11 +140,7 @@ pub async fn separate_vocals_streaming(
         if let Some(ref running) = *task {
             // 如果锁标记为 "train"，但实际训练进程已不存在，则自动清除僵尸锁
             if running == "train" {
-                let alive = std::process::Command::new("pgrep")
-                    .args(["-f", "train\\.py"])
-                    .output()
-                    .map(|o| o.status.success())
-                    .unwrap_or(false);
+                let alive = crate::process_killer::is_process_running("train.py");
                 if !alive {
                     drop(task);
                     let mut lock = state.active_heavy_task.lock().await;
@@ -183,7 +179,7 @@ pub async fn separate_vocals_streaming(
     {
         let pid = state.uvr_pid.lock().await.take();
         if let Some(pid) = pid {
-            let _ = std::process::Command::new("kill").args(["-9", &pid.to_string()]).output();
+            crate::process_killer::kill_pid(pid);
         }
         let mut lock = state.active_heavy_task.lock().await;
         if lock.as_deref() == Some("uvr") {
@@ -198,9 +194,7 @@ pub async fn separate_vocals_streaming(
 pub async fn cancel_uvr(state: State<'_, AppState>) -> Result<(), String> {
     let pid = state.uvr_pid.lock().await.take();
     if let Some(pid) = pid {
-        let _ = std::process::Command::new("kill")
-            .args(["-9", &pid.to_string()])
-            .output();
+        crate::process_killer::kill_pid(pid);
     }
     let mut lock = state.active_heavy_task.lock().await;
     if lock.as_deref() == Some("uvr") {

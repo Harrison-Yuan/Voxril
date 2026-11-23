@@ -762,7 +762,7 @@ print("[DONE] 导出完成")
         output_path
     );
 
-    let output = std::process::Command::new(&python_cmd)
+    let output = crate::platform::quiet_command(&python_cmd.to_string_lossy())
         .arg("-c")
         .arg(&python_code)
         .current_dir(&project_root)

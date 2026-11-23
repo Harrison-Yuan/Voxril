@@ -1,7 +1,14 @@
 {
   "$schema": "https://schema.tauri.app/config/2.0",
+  "build": {
+    "beforeBuildCommand": "cd src-tauri && cargo run --bin bump_version && cd .. && npm --prefix web run build"
+  },
   "bundle": {
     "targets": ["nsis"],
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
     "resources": [
       "../assets",
       "../infer",
@@ -12,6 +19,8 @@
       "../requirements.lock",
       "bin/windows-x64"
     ],
+    "shortDescription": "Voxril - Local AI Voice Cover Maker for Windows",
+    "longDescription": "Voxril turns any song into a cover sung in your own voice, fully offline. Train a voice model from a few minutes of audio, separate vocals, convert them, and export the finished cover. Powered by RVC.",
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper"

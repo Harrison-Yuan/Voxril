@@ -62,11 +62,7 @@ pub async fn convert_voice_streaming(
         if let Some(ref running) = *task {
             // 如果锁标记为 "train"，但实际训练进程已不存在，则自动清除僵尸锁
             if running == "train" {
-                let alive = std::process::Command::new("pgrep")
-                    .args(["-f", "train\\.py"])
-                    .output()
-                    .map(|o| o.status.success())
-                    .unwrap_or(false);
+                let alive = crate::process_killer::is_process_running("train.py");
                 if !alive {
                     drop(task);
                     let mut lock = state.active_heavy_task.lock().await;
@@ -105,7 +101,7 @@ pub async fn convert_voice_streaming(
     {
         let pid = state.infer_pid.lock().await.take();
         if let Some(pid) = pid {
-            let _ = std::process::Command::new("kill").args(["-9", &pid.to_string()]).output();
+            crate::process_killer::kill_pid(pid);
         }
         let mut lock = state.active_heavy_task.lock().await;
         if lock.as_deref() == Some("infer") {
@@ -120,9 +116,7 @@ pub async fn convert_voice_streaming(
 pub async fn cancel_infer(state: State<'_, AppState>) -> Result<(), String> {
     let pid = state.infer_pid.lock().await.take();
     if let Some(pid) = pid {
-        let _ = std::process::Command::new("kill")
-            .args(["-9", &pid.to_string()])
-            .output();
+        crate::process_killer::kill_pid(pid);
     }
     let mut lock = state.active_heavy_task.lock().await;
     if lock.as_deref() == Some("infer") {
@@ -152,9 +146,7 @@ pub(crate) async fn do_convert_voice_streaming(
     {
         let mut old_pid = state.infer_pid.lock().await;
         if let Some(pid) = old_pid.take() {
-            let _ = std::process::Command::new("kill")
-                .args(["-9", &pid.to_string()])
-                .output();
+            crate::process_killer::kill_pid(pid);
         }
     }
 
@@ -242,7 +234,10 @@ warnings.filterwarnings('ignore')
 def _cleanup_subprocess():
     try:
         import subprocess
-        subprocess.run(['pkill', '-9', '-P', str(os.getpid())], capture_output=True, timeout=3)
+        if sys.platform == 'win32':
+            subprocess.run(['taskkill', '/F', '/T', '/PID', str(os.getpid())], capture_output=True, timeout=3)
+        else:
+            subprocess.run(['pkill', '-9', '-P', str(os.getpid())], capture_output=True, timeout=3)
     except Exception:
         pass
 
@@ -283,7 +278,8 @@ if _avail_mb < 800:
 
 emit_progress(f"内存检查通过 (可用 {{_avail_mb}} MB)")
 
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
+if sys.platform == 'darwin':
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 import logging
 logging.getLogger('numba').setLevel(logging.WARNING)
@@ -300,7 +296,7 @@ os.environ['rmvpe_root'] = r'{}/assets/rmvpe'
 os.environ['hubert_path'] = r'{}/assets/hubert/vec-768-layer-12.onnx'
 
 try:
-    emit_progress("加载声音转换模型(PyTorch MPS)...")
+    emit_progress("加载声音转换模型(PyTorch)...")
 
     model_path = os.path.join(r'{}', '{}')
     from infer.modules.vc.vc_pytorch import get_vc_pytorch
@@ -420,9 +416,7 @@ sys.stdout.flush()
     .map_err(|_| {
         // Timed out — force-kill the stale process
         if let Some(pid) = child_pid {
-            let _ = std::process::Command::new("kill")
-                .args(["-9", &pid.to_string()])
-                .output();
+            crate::process_killer::kill_pid(pid);
         }
         format!("推理超时（{}秒），进程已强制终止。请关闭其他占用内存的应用后重试。", INFER_TIMEOUT_SECS)
     })?;
@@ -735,26 +729,7 @@ fn parse_vocal_identity(vocal_stem: &str) -> (String, String, Option<String>, i3
 
 /// 在 bundle 或开发模式中查找伴生 ffmpeg
 fn find_sidecar_ffmpeg(project_root: &std::path::Path) -> std::path::PathBuf {
-    // DMG 模式
-    if let Ok(exe) = std::env::current_exe() {
-        let resources = exe.parent().and_then(|p| p.parent()).map(|p| p.join("Resources"));
-        if let Some(ref r) = resources {
-            // Tauri v2: Resources/bin/ffmpeg（直接资源）
-            let r1 = r.join("bin").join("ffmpeg");
-            if r1.exists() { return r1; }
-            // Tauri v2: Resources/_up_/bin/ffmpeg（上级资源）
-            let r2 = r.join("_up_").join("bin").join("ffmpeg");
-            if r2.exists() { return r2; }
-        }
-    }
-    // 开发模式：<project_root>/src-tauri/bin/ffmpeg
-    let dev = project_root.join("src-tauri").join("bin").join("ffmpeg");
-    if dev.exists() { return dev; }
-    // 开发模式备用：<project_root>/bin/ffmpeg
-    let dev2 = project_root.join("bin").join("ffmpeg");
-    if dev2.exists() { return dev2; }
-    // 回退：系统 PATH
-    std::path::PathBuf::from("ffmpeg")
+    crate::platform::find_ffmpeg(Some(project_root))
 }
 
 #[tauri::command]
@@ -966,88 +941,25 @@ pub async fn get_base_models_status(state: State<'_, AppState>) -> Result<Vec<Ba
 }
 
 #[tauri::command]
+pub async fn get_active_model_download(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    Ok(state.model_downloader.active_model().await)
+}
+
+#[tauri::command]
 pub async fn download_base_model(
     model_id: String,
     event_id: String,
     state: State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<bool, String> {
-    let executor = PythonExecutor::new(state.project_root.clone(), state.data_dir.clone());
     let settings = crate::download_settings::DownloadSettings::load(&state.db).await;
-    let mut args = vec!["download".to_string(), model_id.clone()];
+    let mut args = vec!["download".to_string(), model_id];
     args.extend(settings.cli_args());
-    let mut cmd = executor.build_command(
-        "tools/check_download_models.py",
-        args,
-        10, // background download
-    );
-    
-    let mut child = cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Failed to start download process: {}", e))?;
 
-    // Track download PID for cleanup on exit
-    let pid = child.id();
-    if let Some(p) = pid {
-        state.download_pids.lock().await.push(p);
-    }
-        
-    let stdout = child.stdout.take().ok_or("Failed to get stdout")?;
-    let mut stderr = child.stderr.take().ok_or("Failed to get stderr")?;
-    
-    let mut reader = tokio::io::BufReader::new(stdout);
-    let mut line = String::new();
-    let mut last_error_msg = String::new();
-    
-    loop {
-        match reader.read_line(&mut line).await {
-            Ok(0) => break,
-            Ok(_) => {
-                let trimmed = line.trim().to_string();
-                if trimmed.starts_with("[MODEL]") {
-                    let msg = trimmed.strip_prefix("[MODEL]").unwrap_or(&trimmed).trim();
-                    // 记录最后一条错误消息（解压失败等）
-                    if msg.contains("失败") || msg.contains("ERROR") || msg.contains("error") || msg.contains("Error") || msg.contains("未找到") {
-                        last_error_msg = msg.to_string();
-                    }
-                    let _ = app.emit("base-model-download-progress", &ConvertProgressPayload {
-                        event_id: event_id.clone(),
-                        stage: "download".to_string(),
-                        kind: "progress".to_string(),
-                        current: 0,
-                        total: 100,
-                        percent: 0,
-                        message: msg.to_string(),
-                    });
-                }
-                line.clear();
-            }
-            Err(_) => break,
-        }
-    }
-    
-    let status = child.wait().await.map_err(|e| format!("Process error: {}", e))?;
-
-    // Remove PID from tracking
-    if let Some(p) = pid {
-        state.download_pids.lock().await.retain(|x| *x != p);
-    }
-
-    if !status.success() {
-        let mut err_output = String::new();
-        stderr.read_to_string(&mut err_output).await.map_err(|e| format!("Read error: {}", e))?;
-        let err_msg = err_output.trim();
-        if !err_msg.is_empty() {
-            return Err(err_msg.to_string());
-        }
-        if !last_error_msg.is_empty() {
-            return Err(last_error_msg);
-        }
-        return Err("下载失败，请检查网络连接后重试".to_string());
-    }
-    Ok(true) // 明确返回 true
+    // 与启动自检共用同一个下载管理器：串行执行、统一事件、统一 PID 清理
+    let downloader = state.model_downloader.clone();
+    downloader.run(&app, args, Some(event_id)).await?;
+    Ok(true)
 }
 
 #[tauri::command]

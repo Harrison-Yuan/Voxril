@@ -130,24 +130,26 @@ fn collect_audio_files(dir_path: &std::path::Path) -> Result<AudioFilesResponse,
 
 #[tauri::command]
 pub async fn open_in_finder(path: String) -> Result<(), String> {
-    use std::process::Command;
-
-    Command::new("open")
-        .arg(&path)
-        .spawn()
-        .map_err(|e| format!("Failed to open in Finder: {}", e))?;
-
-    Ok(())
+    crate::platform::open_path(&path)
+        .map_err(|e| format!("Failed to open in Finder: {}", e))
 }
 
 #[tauri::command]
 pub async fn open_in_vscode(path: String) -> Result<(), String> {
-    use std::process::Command;
-
-    Command::new("code")
-        .arg(&path)
-        .spawn()
-        .map_err(|e| format!("Failed to open in VS Code: {}", e))?;
+    #[cfg(target_os = "windows")]
+    {
+        crate::platform::quiet_command("cmd")
+            .args(["/C", "code", &path])
+            .spawn()
+            .map_err(|e| format!("Failed to open in VS Code: {}", e))?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::process::Command::new("code")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open in VS Code: {}", e))?;
+    }
 
     Ok(())
 }

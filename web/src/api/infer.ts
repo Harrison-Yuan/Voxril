@@ -156,37 +156,21 @@ export const inferApi = {
     return invoke('get_base_models_status')
   },
 
-  async downloadBaseModel(
-    modelId: string,
-    onProgress: (progress: ConvertProgress) => void
-  ): Promise<boolean> {
-    const eventId = `download-${Date.now()}`
-    let unlisten: UnlistenFn | null = null
+  /** 当前正在下载的模型 id（无下载时 null），用于进入页面时恢复进度显示。 */
+  async getActiveModelDownload(): Promise<string | null> {
+    return invoke('get_active_model_download')
+  },
+
+  async downloadBaseModel(modelId: string): Promise<boolean> {
     try {
-      unlisten = await listen<{ event_id: string; kind: string; current: number; total: number; percent: number; message: string }>(
-        'base-model-download-progress',
-        (event) => {
-          const p = event.payload
-          if (p.event_id === eventId) {
-            onProgress({
-              kind: p.kind as 'progress' | 'log',
-              current: p.current,
-              total: p.total,
-              percent: p.percent,
-              message: p.message,
-            })
-          }
-        }
-      )
+      // 进度统一由 modelDownloadStore 的全局订阅同步，这里只等待最终结果
       return await invoke<boolean>('download_base_model', {
         modelId,
-        eventId,
+        eventId: `download-${Date.now()}`,
       })
     } catch (error) {
       // 抛出原始错误，让调用方 catch 并展示
       throw new Error(String(error))
-    } finally {
-      if (unlisten) unlisten()
     }
   },
 

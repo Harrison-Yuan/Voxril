@@ -1,4 +1,5 @@
 use crate::database::Database;
+use crate::model_download::ModelDownloader;
 use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -25,7 +26,8 @@ pub struct AppState {
     /// PID for the running one-shot inference process (offline voice conversion).
     pub infer_pid: Mutex<Option<u32>>,
     pub uvr_pid: Mutex<Option<u32>>,
-    pub download_pids: Mutex<Vec<u32>>,
+    /// 全项目唯一的模型下载管理器（启动自检与手动下载共用）。
+    pub model_downloader: Arc<ModelDownloader>,
     /// 训练进程 PID
     pub train_pid: Mutex<Option<u32>>,
     /// 全局重任务互斥令牌：同一时刻只允许运行一个 GPU 密集型任务
@@ -48,7 +50,7 @@ impl AppState {
         if let Some(pid) = *self.uvr_pid.lock().await {
             all_pids.push(pid);
         }
-        all_pids.extend(self.download_pids.lock().await.drain(..));
+        all_pids.extend(self.model_downloader.take_pids().await);
         if let Some(pid) = *self.train_pid.lock().await {
             all_pids.push(pid);
         }
@@ -80,6 +82,21 @@ fn detect_project_root() -> PathBuf {
             return parent.to_path_buf();
         }
         return current_dir;
+    }
+
+    // Production mode: Windows installer places resources next to the exe
+    #[cfg(target_os = "windows")]
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(dir) = exe_path.parent() {
+            // 上级目录资源（Tauri v2 将 ../assets 等放到 _up_/ 下）
+            let up = dir.join("_up_");
+            if up.join("infer").exists() || up.join("tools").exists() {
+                return up;
+            }
+            if dir.join("infer").exists() || dir.join("tools").exists() {
+                return dir.to_path_buf();
+            }
+        }
     }
 
     // Production mode: check if running inside a macOS .app bundle
@@ -176,18 +193,20 @@ impl AppState {
         let db = Database::new(&db_path).await?;
 
         // Find python
+        let data_dir = dirs::data_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("com.rvc.webui");
         let venv_python = crate::platform::venv_python_rel();
         let python_cmd = if project_root.join(".venv").join(venv_python).exists() {
             project_root.join(".venv").join(venv_python)
         } else if project_root.join("venv").join(venv_python).exists() {
             project_root.join("venv").join(venv_python)
+        } else if data_dir.join("venv").join(venv_python).exists() {
+            // 首次启动由 tools/auto_setup_venv.py 创建的应用级虚拟环境
+            data_dir.join("venv").join(venv_python)
         } else {
             PathBuf::from(crate::platform::default_python_cmd())
         };
-
-        let data_dir = dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("com.rvc.webui");
 
         // ⚠️ DMG 修复：将 configs/ 从只读 bundle 复制到可写数据目录
         //      Python config.py 需要写 configs/v2/40k.json（use_fp32_config）
@@ -210,6 +229,11 @@ impl AppState {
             }
         }
 
+        let model_downloader = Arc::new(ModelDownloader::new(
+            project_root.clone(),
+            data_dir.clone(),
+        ));
+
         Ok(Self {
             db,
             workspace_root: RwLock::new(workspace_root),
@@ -218,7 +242,7 @@ impl AppState {
             data_dir,
             infer_pid: Mutex::new(None),
             uvr_pid: Mutex::new(None),
-            download_pids: Mutex::new(Vec::new()),
+            model_downloader,
             train_pid: Mutex::new(None),
             active_heavy_task: Arc::new(Mutex::new(None)),
             live_singing_phase: Arc::new(RwLock::new(LivePhase::Idle)),

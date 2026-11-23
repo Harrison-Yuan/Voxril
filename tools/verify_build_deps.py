@@ -22,6 +22,12 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+IS_WIN = platform.system() == "Windows"
+
+
+def venv_python(venv: Path) -> Path:
+    """venv 内 Python 路径（Windows 为 Scripts/python.exe）。"""
+    return venv / ("Scripts/python.exe" if IS_WIN else "bin/python")
 
 # 必须能 import 的关键包（对应产品功能）
 CRITICAL_PACKAGES = [
@@ -44,14 +50,22 @@ def log(msg: str, level: str = "INFO"):
 
 
 def find_python_bin() -> Path:
-    """优先用项目 .venv，fallback 到 Homebrew Python"""
+    """优先用项目 .venv，fallback 到系统 Python"""
     candidates = [
-        ROOT / ".venv/bin/python",
-        ROOT / "venv/bin/python",
+        venv_python(ROOT / ".venv"),
+        venv_python(ROOT / "venv"),
     ]
-    for ver in ["3.12", "3.11", "3.10"]:
-        for base in ["/opt/homebrew/bin", "/usr/local/bin"]:
-            candidates.append(Path(base) / f"python{ver}")
+    if IS_WIN:
+        local = os.environ.get("LOCALAPPDATA")
+        if local:
+            for ver in ["312", "311", "310"]:
+                candidates.append(
+                    Path(local) / "Programs" / "Python" / f"Python{ver}" / "python.exe"
+                )
+    else:
+        for ver in ["3.12", "3.11", "3.10"]:
+            for base in ["/opt/homebrew/bin", "/usr/local/bin"]:
+                candidates.append(Path(base) / f"python{ver}")
 
     for c in candidates:
         if c.exists():
@@ -63,7 +77,8 @@ def find_python_bin() -> Path:
                         return c
             except Exception:
                 continue
-    raise RuntimeError("未找到 Python 3.10+，请先安装: brew install python@3.12")
+    hint = "请安装 Python 3.11 后重试" if IS_WIN else "请先安装: brew install python@3.12"
+    raise RuntimeError(f"未找到 Python 3.10+，{hint}")
 
 
 def verify_imports(python_bin: Path) -> list[str]:
@@ -95,7 +110,7 @@ def quick_check():
     failed = verify_imports(python_bin)
     if failed:
         print(f"\n❌ 缺失包: {', '.join(failed)}")
-        print("   修复: .venv/bin/pip install " + " ".join(pkg.replace("_", "-") for pkg in failed))
+        print("   修复: " + str(venv_python(ROOT / ".venv")) + " -m pip install " + " ".join(pkg.replace("_", "-") for pkg in failed))
         sys.exit(1)
     print("\n✅ 所有关键依赖验证通过")
 
@@ -119,18 +134,17 @@ def full_check():
     with tempfile.TemporaryDirectory(prefix="rvc_build_verify_") as tmp:
         tmp_path = Path(tmp)
         log(f"创建临时 venv ({base_python})...")
-        venv.create(str(tmp_path), with_pip=True, symlinks=True)
-        python_bin = tmp_path / "bin" / "python"
-        pip_bin = tmp_path / "bin" / "pip"
+        venv.create(str(tmp_path), with_pip=True, symlinks=not IS_WIN)
+        python_bin = venv_python(tmp_path)
 
         log("升级 pip...")
-        subprocess.run([str(pip_bin), "install", "--upgrade", "pip", "-q"],
+        subprocess.run([str(python_bin), "-m", "pip", "install", "--upgrade", "pip", "-q"],
                        capture_output=True, timeout=60)
 
         log(f"安装依赖 ({install_from.name})...")
         t0 = time.time()
         result = subprocess.run(
-            [str(pip_bin), "install", "-r", str(install_from), "-q"],
+            [str(python_bin), "-m", "pip", "install", "-r", str(install_from), "-q"],
             capture_output=True, text=True, timeout=600,
         )
         elapsed = time.time() - t0

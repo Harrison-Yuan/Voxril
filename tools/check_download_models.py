@@ -15,6 +15,7 @@ import json
 import os
 import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
@@ -132,6 +133,7 @@ UVR_MODELS_DEF = {
 }
 
 _probe_cache = {}
+_gh_probe_cache = {}
 
 
 def _probe(url, timeout=4):
@@ -172,6 +174,32 @@ def _hf_urls(repo, path):
     return [f"{endpoint}/{base}" for endpoint in _hf_endpoints()]
 
 
+def _gh_direct_ok(url, timeout=4):
+    """探测 GitHub 直连是否可用（国内常被限速到 0，需优先走加速代理）。"""
+    if url in _gh_probe_cache:
+        return _gh_probe_cache[url]
+    ok = False
+    try:
+        # 读取一小段数据并限时判断，避免"能连上但只有几 KB/s"仍被判为可用
+        req = Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0", "Range": "bytes=0-131071"},
+        )
+        started = time.time()
+        with urlopen(req, timeout=timeout) as response:
+            data = response.read(131072)
+            ok = (
+                getattr(response, "status", 200) < 400
+                and len(data) >= 65536
+                # 2 秒内读到 128KB（≥64KB/s）才算直连可用
+                and (time.time() - started) <= 2.0
+            )
+    except Exception:
+        ok = False
+    _gh_probe_cache[url] = ok
+    return ok
+
+
 def _gh_urls(url):
     """按当前下载源返回 GitHub 直链及其加速前缀。"""
     if SOURCE == "official":
@@ -182,8 +210,12 @@ def _gh_urls(url):
     if SOURCE in ("auto", "cn"):
         proxies.extend(p for p in GH_PROXIES if p not in proxies)
     proxied = [f"{p}/{url}" for p in proxies]
-    # 国内模式先走加速，失败再直连；自动模式先直连，失败再走加速
-    return (proxied + [url]) if SOURCE == "cn" else ([url] + proxied)
+    if SOURCE == "cn":
+        return proxied + [url]
+    # auto：先探测直连，直连不可用时优先加速代理（国内网络下直连常接近 0 字节/秒）
+    if _gh_direct_ok(url):
+        return [url] + proxied
+    return proxied + [url]
 
 
 def _model_urls(model_key):
@@ -219,6 +251,78 @@ def _sha256_of(path):
 def _discard(part, meta_path):
     part.unlink(missing_ok=True)
     meta_path.unlink(missing_ok=True)
+
+
+# ── 下载互斥锁：避免启动自检与手动下载并发写同一个 .part ──
+_LOCK_STALE_SECS = 180
+_LOCK_WAIT_SECS = 900
+
+# 速度守卫：低于该速度视为下载源不可用，保留断点后换源。
+# 600MB 级模型若用几 KB/s 的源，会一直占着下载锁，必须尽早放弃。
+_MIN_RATE_BYTES = 48 * 1024
+_RATE_WINDOW_SECS = 20
+
+
+def _lock_path(dest: Path) -> Path:
+    return dest.with_name(dest.name + ".lock")
+
+
+@contextmanager
+def _download_lock(dest: Path, wait_seconds: int = _LOCK_WAIT_SECS):
+    """同一个目标文件只允许一个进程下载；等待者可安全等待或超时失败。"""
+    lock = _lock_path(dest)
+    os.makedirs(lock.parent, exist_ok=True)
+    deadline = time.time() + wait_seconds
+    last_notice = 0.0
+    waited = False
+    while True:
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            try:
+                os.write(fd, str(os.getpid()).encode())
+            finally:
+                os.close(fd)
+            break
+        except FileExistsError:
+            # 崩溃残留：超过阈值未更新心跳则清理
+            try:
+                if time.time() - lock.stat().st_mtime > _LOCK_STALE_SECS:
+                    lock.unlink(missing_ok=True)
+                    continue
+            except OSError:
+                pass
+            if time.time() >= deadline:
+                raise RuntimeError("等待其他下载任务超时，请稍后重试")
+            if not waited:
+                print("[MODEL] 另一个下载任务正在进行，等待其完成 ...", flush=True)
+                waited = True
+            elif time.time() - last_notice > 30:
+                last_notice = time.time()
+                print("[MODEL] 仍在等待其他下载任务 ...", flush=True)
+            time.sleep(5)
+        except OSError:
+            # 无法创建锁（权限/路径异常）时不阻塞下载
+            break
+    try:
+        yield
+    finally:
+        lock.unlink(missing_ok=True)
+
+
+def _final_file_ok(dest: Path, min_mb: int) -> bool:
+    if not dest.exists():
+        return False
+    size = dest.stat().st_size
+    if size <= 0:
+        return False
+    if min_mb and size < min_mb * 1024 * 1024:
+        return False
+    return True
+
+
+def _cleanup_parts(dest: Path):
+    dest.with_name(dest.name + ".part").unlink(missing_ok=True)
+    dest.with_name(dest.name + ".part.json").unlink(missing_ok=True)
 
 
 def _finalize(part, dest, meta_path, total, min_mb, sha256):
@@ -313,18 +417,39 @@ def _dl_once(url, dest, min_mb=0, sha256=None, retry_416=True):
 
             last_pct = -1
             last_report = 0.0
+            last_beat = 0.0
+            rate_start = time.time()
+            rate_bytes = 0
             mode = "ab" if ranged else "wb"
             with open(part, mode) as f:
                 while True:
                     chunk = response.read(262144)
                     if not chunk:
                         break
+                    # 心跳：告诉其他下载进程当前任务仍然存活
+                    if time.time() - last_beat > 5:
+                        last_beat = time.time()
+                        try:
+                            _lock_path(dest).touch()
+                        except OSError:
+                            pass
                     if mode == "wb" and f.tell() == 0 and _is_html_content(chunk):
                         f.close()
                         _discard(part, meta_path)
                         raise RuntimeError("下载内容为 HTML 页面，不是有效的模型文件（可能是错误页面）")
                     f.write(chunk)
                     written = f.tell()
+                    # 速度守卫：保留 .part 换源，避免慢源长期占着下载锁
+                    rate_bytes += len(chunk)
+                    now = time.time()
+                    if now - rate_start >= _RATE_WINDOW_SECS:
+                        rate = rate_bytes / (now - rate_start)
+                        if rate < _MIN_RATE_BYTES:
+                            raise RuntimeError(
+                                f"下载速度过低 ({rate / 1024:.0f}KB/s)，切换下载源"
+                            )
+                        rate_start = now
+                        rate_bytes = 0
                     if total > 0:
                         pct = min(99, int(written * 100 / total))
                         if pct != last_pct:
@@ -350,25 +475,50 @@ def _dl_once(url, dest, min_mb=0, sha256=None, retry_416=True):
 
 def dl_file(urls, dest, min_mb=0, sha256=None):
     """按顺序尝试所有下载源，失败自动换源；网络错误在当前源重试一次。"""
-    last_err = None
-    for index, url in enumerate(urls):
-        for attempt in (1, 2):
-            try:
-                _dl_once(url, dest, min_mb=min_mb, sha256=sha256)
-                return
-            except Exception as e:
-                last_err = e
-                print(f"[MODEL] 下载失败（{urlparse(url).netloc}）：{e}", flush=True)
-                # 校验失败或 4xx 重试没有意义，直接换源
-                fatal = "校验失败" in str(e) or "HTTP 4" in str(e)
-                if fatal:
-                    break
-                if attempt == 1:
-                    time.sleep(2)
-                    print("[MODEL] 重试当前源...", flush=True)
-        if index + 1 < len(urls):
-            print("[MODEL] 切换下一个下载源...", flush=True)
-    raise RuntimeError(f"所有下载源均失败: {last_err}")
+    with _download_lock(dest):
+        # 已有完整成品：跳过并清掉历史断点，避免误用半成品
+        if _final_file_ok(dest, min_mb):
+            print(f"[MODEL] {dest.name} 已存在，跳过下载", flush=True)
+            _cleanup_parts(dest)
+            return
+        # 明显不完整的旧成品会被 audio-separator 误认，先删除；.part 保留用于续传
+        if dest.exists():
+            print(f"[MODEL] {dest.name} 旧文件不完整，已删除", flush=True)
+            dest.unlink(missing_ok=True)
+
+        last_err = None
+        for index, url in enumerate(urls):
+            for attempt in (1, 2):
+                try:
+                    _dl_once(url, dest, min_mb=min_mb, sha256=sha256)
+                    return
+                except Exception as e:
+                    last_err = e
+                    print(f"[MODEL] 下载失败（{urlparse(url).netloc}）：{e}", flush=True)
+                    # 校验失败或 4xx 重试没有意义，直接换源
+                    fatal = "校验失败" in str(e) or "HTTP 4" in str(e) or "速度过低" in str(e)
+                    if fatal:
+                        break
+                    if attempt == 1:
+                        time.sleep(2)
+                        print("[MODEL] 重试当前源...", flush=True)
+            if index + 1 < len(urls):
+                print("[MODEL] 切换下一个下载源...", flush=True)
+        raise RuntimeError(f"所有下载源均失败: {last_err}")
+
+
+def _model_begin(model_key):
+    """标记当前正在处理的模型，供上层把日志归属到对应模型并展示其名称。"""
+    info = MODELS.get(model_key) or UVR_MODELS_DEF.get(model_key) or {}
+    payload = json.dumps(
+        {"id": model_key, "name": info.get("name", model_key)},
+        ensure_ascii=False,
+    )
+    print(f"[MODEL-BEGIN] {payload}", flush=True)
+
+
+def _model_end(model_key):
+    print(f"[MODEL-END] {model_key}", flush=True)
 
 
 def download_uvr_model(model_key="bs_roformer"):
@@ -391,24 +541,30 @@ def download_uvr_model(model_key="bs_roformer"):
 
 
 def check_uvr_model(model_key="bs_roformer"):
-    model_def = UVR_MODELS_DEF[model_key]
-    filename = model_def["filename"]
-    min_mb = model_def.get("min_mb", 0)
-    uvr_path = UVR_MODEL_DIR / filename
-    need_download = False
-    if uvr_path.exists():
-        mb = uvr_path.stat().st_size / (1024 * 1024)
-        if mb < min_mb:
-            print(f"[MODEL] {filename} 文件不完整 ({mb:.0f}MB < {min_mb}MB)，重新下载...", flush=True)
-            uvr_path.unlink(missing_ok=True)
-            need_download = True
+    _model_begin(model_key)
+    try:
+        model_def = UVR_MODELS_DEF[model_key]
+        filename = model_def["filename"]
+        min_mb = model_def.get("min_mb", 0)
+        uvr_path = UVR_MODEL_DIR / filename
+        need_download = False
+        if uvr_path.exists():
+            mb = uvr_path.stat().st_size / (1024 * 1024)
+            if mb < min_mb:
+                print(f"[MODEL] {filename} 文件不完整 ({mb:.0f}MB < {min_mb}MB)，重新下载...", flush=True)
+                uvr_path.unlink(missing_ok=True)
+                need_download = True
+            else:
+                print(f"[MODEL] {filename} 模型已存在 ({mb:.0f}MB)", flush=True)
+                # 成品完整时清理历史断点，避免占用磁盘/误判
+                _cleanup_parts(uvr_path)
         else:
-            print(f"[MODEL] {filename} 模型已存在 ({mb:.0f}MB)", flush=True)
-    else:
-        print(f"[MODEL] {filename} 模型未找到，需要下载 (约{min_mb}MB)...", flush=True)
-        need_download = True
-    if need_download:
-        download_uvr_model(model_key)
+            print(f"[MODEL] {filename} 模型未找到，需要下载 (约{min_mb}MB)...", flush=True)
+            need_download = True
+        if need_download:
+            download_uvr_model(model_key)
+    finally:
+        _model_end(model_key)
 
 
 def get_status():
@@ -432,15 +588,19 @@ def get_status():
 
 
 def download_specific(model_id):
-    if model_id in MODELS:
-        info = MODELS[model_id]
-        dl_file(_model_urls(model_id), info["path"],
-                min_mb=info.get("min_mb", 0), sha256=info.get("sha256"))
-    elif model_id in UVR_MODELS_DEF:
-        download_uvr_model(model_id)
-    else:
+    if model_id not in MODELS and model_id not in UVR_MODELS_DEF:
         print(f"Unknown model id: {model_id}", flush=True)
         sys.exit(1)
+    _model_begin(model_id)
+    try:
+        if model_id in MODELS:
+            info = MODELS[model_id]
+            dl_file(_model_urls(model_id), info["path"],
+                    min_mb=info.get("min_mb", 0), sha256=info.get("sha256"))
+        else:
+            download_uvr_model(model_id)
+    finally:
+        _model_end(model_id)
 
 
 def clean_stale():
@@ -581,18 +741,22 @@ def main():
 
     print("[MODEL] 开始检查模型文件...", flush=True)
     for key, info in MODELS.items():
-        path = info["path"]
-        min_mb = info.get("min_mb", 0)
-        if path.exists():
-            mb = path.stat().st_size / (1024 * 1024)
-            if min_mb and mb < min_mb:
-                print(f"[MODEL] {path.name} 不完整 ({mb:.0f}MB)，重新下载...", flush=True)
-                path.unlink(missing_ok=True)
-            else:
-                print(f"[MODEL] {path.name} 已存在 ({mb:.0f}MB)", flush=True)
-                continue
-        print(f"[MODEL] {path.name} 未找到，开始下载...", flush=True)
-        dl_file(_model_urls(key), path, min_mb=min_mb, sha256=info.get("sha256"))
+        _model_begin(key)
+        try:
+            path = info["path"]
+            min_mb = info.get("min_mb", 0)
+            if path.exists():
+                mb = path.stat().st_size / (1024 * 1024)
+                if min_mb and mb < min_mb:
+                    print(f"[MODEL] {path.name} 不完整 ({mb:.0f}MB)，重新下载...", flush=True)
+                    path.unlink(missing_ok=True)
+                else:
+                    print(f"[MODEL] {path.name} 已存在 ({mb:.0f}MB)", flush=True)
+                    continue
+            print(f"[MODEL] {path.name} 未找到，开始下载...", flush=True)
+            dl_file(_model_urls(key), path, min_mb=min_mb, sha256=info.get("sha256"))
+        finally:
+            _model_end(key)
     for key in UVR_MODELS_DEF:
         check_uvr_model(key)
     print("[MODEL] 所有模型检查完成", flush=True)

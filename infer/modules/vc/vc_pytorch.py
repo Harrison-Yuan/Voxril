@@ -25,7 +25,12 @@ class VoiceConverterPyTorch:
 
         try:
             self.config = Config()
-            self.config.device = "mps" if torch.backends.mps.is_available() else "cpu"
+            if torch.cuda.is_available():
+                self.config.device = "cuda"
+            elif torch.backends.mps.is_available():
+                self.config.device = "mps"
+            else:
+                self.config.device = "cpu"
             self.config.is_half = False
             
             logger.info(f"Initializing VoiceConverterPyTorch: device={self.config.device}, is_half={self.config.is_half}")

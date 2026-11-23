@@ -138,9 +138,7 @@ pub async fn cover_generate(
             pids.push(pid);
         }
         for pid in pids {
-            let _ = std::process::Command::new("kill")
-                .args(["-9", &pid.to_string()])
-                .output();
+            crate::process_killer::kill_pid(pid);
         }
         let mut lock = state.active_heavy_task.lock().await;
         if lock.as_deref() == Some(COVER_LOCK) {
@@ -161,9 +159,7 @@ pub async fn cancel_cover(state: State<'_, AppState>) -> Result<(), String> {
         pids.push(pid);
     }
     for pid in pids {
-        let _ = std::process::Command::new("kill")
-            .args(["-9", &pid.to_string()])
-            .output();
+        crate::process_killer::kill_pid(pid);
     }
     let mut lock = state.active_heavy_task.lock().await;
     if lock.as_deref() == Some(COVER_LOCK) {
@@ -427,11 +423,7 @@ fn job_id_for(song_path: &str) -> String {
 }
 
 fn is_train_process_alive() -> bool {
-    std::process::Command::new("pgrep")
-        .args(["-f", "train\\.py"])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    crate::process_killer::is_process_running("train.py")
 }
 
 #[cfg(test)]

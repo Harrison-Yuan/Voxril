@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -15,26 +14,17 @@ fn build_path_with_ffmpeg(project_root: &Path) -> String {
     if let Ok(existing) = std::env::var("PATH") {
         paths.push(existing);
     }
-    // 伴生 ffmpeg 可能的位置
-    let ffmpeg_name = crate::platform::ffmpeg_filename();
-    let candidates = [
-        project_root.join("bin"),
-        project_root.join("src-tauri").join("bin"),
-        // DMG 模式: project_root = Resources/_up_/, ffmpeg = Resources/bin/
-        project_root.join("..").join("bin"),
-        project_root.join("../../bin"),
-    ];
-    for d in &candidates {
-        let p = d.join(ffmpeg_name);
-        if p.exists() {
-            let s = d.to_string_lossy().to_string();
+    // 伴生 ffmpeg 所在目录（平台差异由 platform 层处理）
+    let ffmpeg = crate::platform::find_ffmpeg(Some(project_root));
+    if let Some(dir) = ffmpeg.parent() {
+        if !dir.as_os_str().is_empty() {
+            let s = dir.to_string_lossy().to_string();
             if !paths.contains(&s) {
                 paths.push(s);
             }
-            break;
         }
     }
-    paths.join(":")
+    paths.join(&crate::platform::path_list_separator().to_string())
 }
 
 /// 返回当前可执行文件的路径。
@@ -53,7 +43,7 @@ pub fn get_app_data_dir() -> PathBuf {
 }
 
 fn check_python_version(path: &PathBuf) -> bool {
-    let output = Command::new(path)
+    let output = crate::platform::quiet_command(&path.to_string_lossy())
         .arg("--version")
         .output()
         .ok();
@@ -173,10 +163,7 @@ impl PythonExecutor {
     /// All processes get nice=5 so other apps (browser, music, etc.) stay responsive.
     /// nice_level: override if needed (0=normal, 5=politely yield, 10=very polite)
     pub fn build_command(&self, script_path: &str, args: Vec<String>, nice_level: i32) -> TokioCommand {
-        let n = if nice_level > 0 { nice_level } else { 5 };
-        let mut cmd = TokioCommand::new("nice");
-        cmd.arg(&format!("-n{}", n));
-        cmd.arg(&self.python_cmd);
+        let mut cmd = crate::platform::tokio_python_command(&self.python_cmd, nice_level);
         let data_dir_str = self.data_dir.to_string_lossy().to_string();
         let hubert_model_path = format!("{}/assets/hubert/vec-768-layer-12.onnx", data_dir_str);
         let configs_dir = self.data_dir.join("configs").to_string_lossy().to_string();
@@ -200,9 +187,7 @@ impl PythonExecutor {
     }
 
     fn build_native_command(&self, script_path: &str, args: Vec<String>) -> Command {
-        let mut cmd = Command::new("nice");
-        cmd.arg("-n5");
-        cmd.arg(&self.python_cmd);
+        let mut cmd = crate::platform::python_command(&self.python_cmd, 5);
         let data_dir_str = self.data_dir.to_string_lossy().to_string();
         let hubert_model_path = format!("{}/assets/hubert/vec-768-layer-12.onnx", data_dir_str);
         let configs_dir = self.data_dir.join("configs").to_string_lossy().to_string();
@@ -284,10 +269,8 @@ impl PythonExecutor {
         let data_dir_str = self.data_dir.to_string_lossy().to_string();
         let hubert_model_path = format!("{}/assets/hubert/vec-768-layer-12.onnx", data_dir_str);
         let rmvpe_root = format!("{}/assets/rmvpe", data_dir_str);
-        let mut cmd = Command::new("nice");
-        cmd.arg("-n10")
-            .arg(&self.python_cmd)
-            .arg(script_path)
+        let mut cmd = crate::platform::python_command(&self.python_cmd, 10);
+        cmd.arg(script_path)
             .args(args)
             .current_dir(&self.project_root)
             .env("PYTHONPATH", &self.project_root)
