@@ -1,12 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Input, Button, message, Alert, Select, Modal, Tag, Space, Spin } from 'antd'
-import {
-  FolderOpenOutlined, SaveOutlined, ReloadOutlined, SettingOutlined,
-  DatabaseOutlined, ClearOutlined, ArrowRightOutlined, CloudDownloadOutlined,
-} from '@ant-design/icons'
+import { FolderOpenOutlined, SaveOutlined, ReloadOutlined, SettingOutlined, DatabaseOutlined, ClearOutlined, ArrowRightOutlined, CloudDownloadOutlined } from '@ant-design/icons'
 import { workspaceApi } from '@/api/database'
 import { downloadApi } from '@/api/download'
-import type { DownloadSettings, DownloadSource } from '@/api/download'
+import type { DownloadSettings, DownloadSource, PipSource } from '@/api/download'
 import { layoutApi } from '@/api/layout'
 import type { LayoutStatus, MigrationPreview } from '@/api/layout'
 import { storageApi } from '@/api/storage'
@@ -19,6 +16,15 @@ const SOURCE_OPTIONS: { value: DownloadSource; zh: string; en: string }[] = [
   { value: 'auto', zh: '自动（推荐）', en: 'Auto (recommended)' },
   { value: 'official', zh: '官方源', en: 'Official only' },
   { value: 'cn', zh: '国内镜像', en: 'China mirror' },
+  { value: 'custom', zh: '自定义', en: 'Custom' },
+]
+
+/** pip 源选项。 */
+const PIP_SOURCE_OPTIONS: { value: PipSource; zh: string; en: string }[] = [
+  { value: 'auto', zh: '自动（推荐）', en: 'Auto (recommended)' },
+  { value: 'official', zh: '官方 PyPI', en: 'Official PyPI' },
+  { value: 'tuna', zh: '清华镜像', en: 'Tsinghua mirror' },
+  { value: 'aliyun', zh: '阿里云镜像', en: 'Aliyun mirror' },
   { value: 'custom', zh: '自定义', en: 'Custom' },
 ]
 
@@ -41,37 +47,54 @@ export default function SettingsPage() {
   const [reclaiming, setReclaiming] = useState(false)
   const [deepCleaning, setDeepCleaning] = useState(false)
 
-  // 模型下载源
+  // 模型 / 依赖下载源
   const [download, setDownload] = useState<DownloadSettings>({
-    source: 'auto', hf_endpoint: '', gh_proxy: '',
+    source: 'auto',
+    hf_endpoint: '',
+    gh_proxy: '',
+    pip_source: 'auto',
+    pip_index: '',
   })
   const [downloadSaving, setDownloadSaving] = useState(false)
 
   const loadDownloadSettings = async () => {
-    try { setDownload(await downloadApi.get()) }
-    catch { /* 下载设置仅用于配置，读取失败保持默认值 */ }
+    try {
+      setDownload(await downloadApi.get())
+    } catch {
+      /* 下载设置仅用于配置，读取失败保持默认值 */
+    }
   }
 
   const loadWorkspace = async () => {
     setFetching(true)
     try {
       setWorkspace(await workspaceApi.get())
-    } catch { message.error(t('common.failed')) }
-    finally { setFetching(false) }
+    } catch {
+      message.error(t('common.failed'))
+    } finally {
+      setFetching(false)
+    }
     loadLayoutStatus()
     loadReport()
   }
 
   const loadLayoutStatus = async () => {
-    try { setLayoutStatus(await layoutApi.getStatus()) }
-    catch { /* 状态仅用于展示，失败不打断页面 */ }
+    try {
+      setLayoutStatus(await layoutApi.getStatus())
+    } catch {
+      /* 状态仅用于展示，失败不打断页面 */
+    }
   }
 
   const loadReport = async () => {
     setReportLoading(true)
-    try { setReport(await storageApi.getReport()) }
-    catch (e: any) { message.error(`统计存储占用失败：${e?.message || e}`) }
-    finally { setReportLoading(false) }
+    try {
+      setReport(await storageApi.getReport())
+    } catch (e: any) {
+      message.error(`统计存储占用失败：${e?.message || e}`)
+    } finally {
+      setReportLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -84,12 +107,18 @@ export default function SettingsPage() {
     try {
       await downloadApi.set(download)
       message.success(t('common.done'))
-    } catch (e: any) { message.error(`保存下载设置失败：${e?.message || e}`) }
-    finally { setDownloadSaving(false) }
+    } catch (e: any) {
+      message.error(`保存下载设置失败：${e?.message || e}`)
+    } finally {
+      setDownloadSaving(false)
+    }
   }
 
   const handleSave = async () => {
-    if (!workspace.trim()) { message.warning(t('common.no_data')); return }
+    if (!workspace.trim()) {
+      message.warning(t('common.no_data'))
+      return
+    }
     setLoading(true)
     try {
       const result = await workspaceApi.set(workspace.trim())
@@ -97,15 +126,23 @@ export default function SettingsPage() {
       setWorkspace(result.workspace)
       loadLayoutStatus()
       loadReport()
-    } catch (e: any) { message.error(e.message || t('common.failed')) }
-    finally { setLoading(false) }
+    } catch (e: any) {
+      message.error(e.message || t('common.failed'))
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleSelectFolder = async () => {
     try {
       const path = await workspaceApi.select()
-      if (path) { setWorkspace(path); message.success(t('common.done')) }
-    } catch (e: any) { message.error(e.message || t('common.failed')) }
+      if (path) {
+        setWorkspace(path)
+        message.success(t('common.done'))
+      }
+    } catch (e: any) {
+      message.error(e.message || t('common.failed'))
+    }
   }
 
   const openPreview = async () => {
@@ -114,8 +151,11 @@ export default function SettingsPage() {
       const data = await layoutApi.preview()
       setPreview(data)
       setPreviewOpen(true)
-    } catch (e: any) { message.error(`生成迁移预览失败：${e?.message || e}`) }
-    finally { setPreviewing(false) }
+    } catch (e: any) {
+      message.error(`生成迁移预览失败：${e?.message || e}`)
+    } finally {
+      setPreviewing(false)
+    }
   }
 
   const confirmMigrate = async () => {
@@ -127,17 +167,21 @@ export default function SettingsPage() {
       setPreview(null)
       await loadLayoutStatus()
       await loadReport()
-    } catch (e: any) { message.error(`升级失败：${e?.message || e}`) }
-    finally { setMigrating(false) }
+    } catch (e: any) {
+      message.error(`升级失败：${e?.message || e}`)
+    } finally {
+      setMigrating(false)
+    }
   }
 
   const handleReclaim = () => {
     const bytes = report?.reclaimable_now ?? 0
     Modal.confirm({
       title: lang === 'zh' ? '确认释放空间' : 'Reclaim space',
-      content: lang === 'zh'
-        ? `将删除所有批次的 1_16k_wavs、eval、TensorBoard 事件与孤立 STFT 缓存，预计释放 ${formatBytes(bytes)}。训练与转换不受影响。`
-        : `This removes 1_16k_wavs, eval, TensorBoard events and orphan STFT caches for all batches. About ${formatBytes(bytes)} will be freed.`,
+      content:
+        lang === 'zh'
+          ? `将删除所有批次的 1_16k_wavs、eval、TensorBoard 事件与孤立 STFT 缓存，预计释放 ${formatBytes(bytes)}。训练与转换不受影响。`
+          : `This removes 1_16k_wavs, eval, TensorBoard events and orphan STFT caches for all batches. About ${formatBytes(bytes)} will be freed.`,
       okText: lang === 'zh' ? '释放' : 'Reclaim',
       cancelText: lang === 'zh' ? '取消' : 'Cancel',
       onOk: async () => {
@@ -146,8 +190,11 @@ export default function SettingsPage() {
           const res = await storageApi.reclaimAll()
           message.success(`已释放 ${formatBytes(res.freed_bytes)}（${res.batches} 个批次）`)
           await loadReport()
-        } catch (e: any) { message.error(`释放失败：${e?.message || e}`) }
-        finally { setReclaiming(false) }
+        } catch (e: any) {
+          message.error(`释放失败：${e?.message || e}`)
+        } finally {
+          setReclaiming(false)
+        }
       },
     })
   }
@@ -158,8 +205,11 @@ export default function SettingsPage() {
       const res = await storageApi.deepClean()
       message.success(res.freed_gb > 0 ? `${res.message}` : res.message)
       await loadReport()
-    } catch (e: any) { message.error(`清理失败：${e?.message || e}`) }
-    finally { setDeepCleaning(false) }
+    } catch (e: any) {
+      message.error(`清理失败：${e?.message || e}`)
+    } finally {
+      setDeepCleaning(false)
+    }
   }
 
   const previewBlocked = (preview?.blockers.length ?? 0) > 0
@@ -167,21 +217,30 @@ export default function SettingsPage() {
   const sourceHint = (() => {
     switch (download.source) {
       case 'official':
-        return lang === 'zh'
-          ? '始终使用 huggingface.co 与 github.com 直连，适合海外网络。'
-          : 'Always use huggingface.co and github.com directly; best for networks outside China.'
+        return lang === 'zh' ? '始终使用 huggingface.co 与 github.com 直连，适合海外网络。' : 'Always use huggingface.co and github.com directly; best for networks outside China.'
       case 'cn':
-        return lang === 'zh'
-          ? '优先使用 hf-mirror.com 与 GitHub 加速前缀，适合国内网络；失败后仍会回退官方源。'
-          : 'Prefer hf-mirror.com and a GitHub proxy; falls back to official sources on failure.'
+        return lang === 'zh' ? '优先使用 hf-mirror.com 与 GitHub 加速前缀，适合国内网络；失败后仍会回退官方源。' : 'Prefer hf-mirror.com and a GitHub proxy; falls back to official sources on failure.'
       case 'custom':
-        return lang === 'zh'
-          ? '先使用你填写的端点，失败后回退官方源。'
-          : 'Use your endpoints first, then fall back to official sources.'
+        return lang === 'zh' ? '先使用你填写的端点，失败后回退官方源。' : 'Use your endpoints first, then fall back to official sources.'
       default:
         return lang === 'zh'
           ? '自动探测官方源，不可达时切换到国内镜像；下载中断后再次点击会从断点继续。'
           : 'Probes the official source first, falls back to a mirror, and resumes interrupted downloads.'
+    }
+  })()
+
+  const pipHint = (() => {
+    switch (download.pip_source) {
+      case 'official':
+        return lang === 'zh' ? '始终使用官方 PyPI，适合海外网络。' : 'Always use the official PyPI; best for networks outside China.'
+      case 'tuna':
+        return lang === 'zh' ? '优先清华 PyPI 镜像，失败后回退官方源。' : 'Prefer the Tsinghua PyPI mirror, then fall back to official PyPI.'
+      case 'aliyun':
+        return lang === 'zh' ? '优先阿里云 PyPI 镜像，失败后回退官方源。' : 'Prefer the Aliyun PyPI mirror, then fall back to official PyPI.'
+      case 'custom':
+        return lang === 'zh' ? '先使用你填写的索引地址，失败后回退官方源。' : 'Use your index URL first, then fall back to official PyPI.'
+      default:
+        return lang === 'zh' ? '自动探测官方 PyPI，不可达时切换清华镜像；首次安装或补齐缺失依赖时生效。' : 'Probes the official PyPI and falls back to the Tsinghua mirror; applies on next install.'
     }
   })()
 
@@ -200,7 +259,14 @@ export default function SettingsPage() {
 
       {/* Language Card */}
       <div className="ant-card" style={{ padding: 0, marginBottom: 20 }}>
-        <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--color-border-subtle)', fontSize: 13, fontWeight: 600 }}>
+        <div
+          style={{
+            padding: '12px 20px',
+            borderBottom: '1px solid var(--color-border-subtle)',
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        >
           {t('settings.language')}
         </div>
         <div style={{ padding: 20 }}>
@@ -221,50 +287,92 @@ export default function SettingsPage() {
 
       {/* Model Download Source Card */}
       <div className="ant-card" style={{ padding: 0, marginBottom: 20 }}>
-        <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--color-border-subtle)', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600 }}>
+        <div
+          style={{
+            padding: '12px 20px',
+            borderBottom: '1px solid var(--color-border-subtle)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        >
           <CloudDownloadOutlined />
-          {lang === 'zh' ? '模型下载源' : 'Model download source'}
+          {lang === 'zh' ? '模型与依赖下载源' : 'Model & dependency sources'}
         </div>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
           <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: 0 }}>
             {lang === 'zh'
-              ? '基础模型支持多源下载、断点续传与 SHA256 校验；下载失败会自动切换下一个源。'
-              : 'Base models support multiple sources, resume and SHA256 checks; a failed download moves on to the next source.'}
+              ? '基础模型支持多源下载、断点续传与 SHA256 校验；Python 依赖支持 PyPI 镜像。失败都会自动切换下一个源。'
+              : 'Base models support multiple sources, resume and SHA256 checks; Python packages support PyPI mirrors. Failures fall back automatically.'}
           </p>
 
           <Select
             value={download.source}
-            onChange={(v: DownloadSource) => setDownload(d => ({ ...d, source: v }))}
+            onChange={(v: DownloadSource) => setDownload((d) => ({ ...d, source: v }))}
             style={{ width: 240 }}
-            options={SOURCE_OPTIONS.map(o => ({ value: o.value, label: lang === 'zh' ? o.zh : o.en }))}
+            options={SOURCE_OPTIONS.map((o) => ({ value: o.value, label: lang === 'zh' ? o.zh : o.en }))}
           />
-          <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: 0 }}>
-            {sourceHint}
-          </p>
+          <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: 0 }}>{sourceHint}</p>
 
           {download.source === 'custom' && (
             <>
               <div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: 'var(--color-text-tertiary)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                    marginBottom: 8,
+                  }}
+                >
                   {lang === 'zh' ? 'HuggingFace 端点' : 'HuggingFace endpoint'}
                 </div>
-                <Input
-                  value={download.hf_endpoint}
-                  onChange={e => setDownload(d => ({ ...d, hf_endpoint: e.target.value }))}
-                  placeholder="https://hf-mirror.com"
-                />
+                <Input value={download.hf_endpoint} onChange={(e) => setDownload((d) => ({ ...d, hf_endpoint: e.target.value }))} placeholder="https://hf-mirror.com" />
               </div>
               <div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: 'var(--color-text-tertiary)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                    marginBottom: 8,
+                  }}
+                >
                   {lang === 'zh' ? 'GitHub 加速前缀（可选）' : 'GitHub proxy prefix (optional)'}
                 </div>
-                <Input
-                  value={download.gh_proxy}
-                  onChange={e => setDownload(d => ({ ...d, gh_proxy: e.target.value }))}
-                  placeholder="https://ghfast.top"
-                />
+                <Input value={download.gh_proxy} onChange={(e) => setDownload((d) => ({ ...d, gh_proxy: e.target.value }))} placeholder="https://ghfast.top" />
               </div>
             </>
+          )}
+
+          <div style={{ height: 1, background: 'var(--color-border-subtle)', margin: '4px 0' }} />
+
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+              {lang === 'zh' ? 'Python 依赖源' : 'Python package source'}
+            </div>
+            <Select
+              value={download.pip_source}
+              onChange={(v: PipSource) => setDownload((d) => ({ ...d, pip_source: v }))}
+              style={{ width: 240 }}
+              options={PIP_SOURCE_OPTIONS.map((o) => ({ value: o.value, label: lang === 'zh' ? o.zh : o.en }))}
+            />
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: 0 }}>{pipHint}</p>
+
+          {download.pip_source === 'custom' && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                {lang === 'zh' ? 'PyPI 索引地址' : 'PyPI index URL'}
+              </div>
+              <Input value={download.pip_index} onChange={(e) => setDownload((d) => ({ ...d, pip_index: e.target.value }))} placeholder="https://pypi.tuna.tsinghua.edu.cn/simple" />
+            </div>
           )}
 
           <div>
@@ -277,7 +385,14 @@ export default function SettingsPage() {
 
       {/* Workspace Card */}
       <div className="ant-card" style={{ padding: 0, marginBottom: 20 }}>
-        <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--color-border-subtle)', fontSize: 13, fontWeight: 600 }}>
+        <div
+          style={{
+            padding: '12px 20px',
+            borderBottom: '1px solid var(--color-border-subtle)',
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        >
           {t('settings.workspace')}
         </div>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -285,27 +400,23 @@ export default function SettingsPage() {
             {lang === 'zh' ? '所有训练数据、模型文件和索引文件都存储在此目录下' : 'All training data, model files, and index files are stored in this directory.'}
           </p>
 
-          <div style={{
-            padding: '10px 14px',
-            background: 'var(--color-bg-base)',
-            border: '1px solid var(--color-border-subtle)',
-            borderRadius: 'var(--radius-lg)',
-            display: 'flex', alignItems: 'center', gap: 10,
-          }}>
+          <div
+            style={{
+              padding: '10px 14px',
+              background: 'var(--color-bg-base)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-lg)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+            }}
+          >
             <FolderOpenOutlined style={{ color: 'var(--color-primary-hover)', flexShrink: 0 }} />
-            <code style={{ fontSize: 12, color: 'var(--color-text-secondary)', wordBreak: 'break-all', flex: 1 }}>
-              {fetching ? t('common.loading') : (workspace || t('common.no_data'))}
-            </code>
+            <code style={{ fontSize: 12, color: 'var(--color-text-secondary)', wordBreak: 'break-all', flex: 1 }}>{fetching ? t('common.loading') : workspace || t('common.no_data')}</code>
           </div>
 
           <div style={{ display: 'flex', gap: 8 }}>
-            <Input
-              value={workspace}
-              onChange={e => setWorkspace(e.target.value)}
-              placeholder="/Users/username/Desktop/RVC-Workspace"
-              size="large"
-              style={{ flex: 1 }}
-            />
+            <Input value={workspace} onChange={(e) => setWorkspace(e.target.value)} placeholder="/Users/username/Desktop/RVC-Workspace" size="large" style={{ flex: 1 }} />
             <Button icon={<FolderOpenOutlined />} size="large" onClick={handleSelectFolder}>
               {t('common.browse')}
             </Button>
@@ -320,16 +431,23 @@ export default function SettingsPage() {
             </Button>
           </div>
 
-          <Alert
-            message={lang === 'zh' ? '修改后需要重启应用才能生效' : 'Changes require a restart to take effect'}
-            type="warning" showIcon style={{ fontSize: 13 }}
-          />
+          <Alert message={lang === 'zh' ? '修改后需要重启应用才能生效' : 'Changes require a restart to take effect'} type="warning" showIcon style={{ fontSize: 13 }} />
         </div>
       </div>
 
       {/* Layout Upgrade Card */}
       <div className="ant-card" style={{ padding: 0, marginBottom: 20 }}>
-        <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--color-border-subtle)', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600 }}>
+        <div
+          style={{
+            padding: '12px 20px',
+            borderBottom: '1px solid var(--color-border-subtle)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        >
           <DatabaseOutlined />
           {lang === 'zh' ? '工作区结构' : 'Workspace Layout'}
         </div>
@@ -348,9 +466,7 @@ export default function SettingsPage() {
                 )}
               </Space>
               <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: 0 }}>
-                {lang === 'zh'
-                  ? '目录已整理为「进 / 算 / 出 / 留」四层：inputs、work、outputs、models。'
-                  : 'Directories are organized into inputs / work / outputs / models.'}
+                {lang === 'zh' ? '目录已整理为「进 / 算 / 出 / 留」四层：inputs、work、outputs、models。' : 'Directories are organized into inputs / work / outputs / models.'}
               </p>
             </>
           ) : (
@@ -375,7 +491,17 @@ export default function SettingsPage() {
 
       {/* Cleanup Center Card */}
       <div className="ant-card" style={{ padding: 0 }}>
-        <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--color-border-subtle)', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600 }}>
+        <div
+          style={{
+            padding: '12px 20px',
+            borderBottom: '1px solid var(--color-border-subtle)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        >
           <ClearOutlined />
           {lang === 'zh' ? '清理中心' : 'Cleanup Center'}
         </div>
@@ -384,30 +510,29 @@ export default function SettingsPage() {
             <Spin size="small" />
           ) : report ? (
             <>
-              <div style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12,
-                padding: '12px 16px', background: 'var(--color-bg-base)',
-                border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-lg)',
-              }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '12px 16px',
+                  background: 'var(--color-bg-base)',
+                  border: '1px solid var(--color-border-subtle)',
+                  borderRadius: 'var(--radius-lg)',
+                }}
+              >
                 <div>
-                  <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                    {lang === 'zh' ? '可立即释放' : 'Reclaimable now'}
-                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{lang === 'zh' ? '可立即释放' : 'Reclaimable now'}</div>
                   <div style={{ fontSize: 22, fontWeight: 600 }}>{formatBytes(report.reclaimable_now)}</div>
                 </div>
-                <Button
-                  type="primary"
-                  icon={<ClearOutlined />}
-                  onClick={handleReclaim}
-                  loading={reclaiming}
-                  disabled={report.reclaimable_now <= 0}
-                >
+                <Button type="primary" icon={<ClearOutlined />} onClick={handleReclaim} loading={reclaiming} disabled={report.reclaimable_now <= 0}>
                   {lang === 'zh' ? '释放空间' : 'Reclaim'}
                 </Button>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {report.zones.map(zone => (
+                {report.zones.map((zone) => (
                   <div key={zone.key} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13 }}>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ color: 'var(--color-text-secondary)' }}>{zone.label}</div>
@@ -418,7 +543,15 @@ export default function SettingsPage() {
                 ))}
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingTop: 4 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 12,
+                  paddingTop: 4,
+                }}
+              >
                 <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
                   {lang === 'zh' ? '构建缓存（应用本身）单独清理，不影响工作区数据' : 'Build caches are cleaned separately without touching workspace data.'}
                 </span>
@@ -453,50 +586,53 @@ export default function SettingsPage() {
           <Button key="cancel" onClick={() => setPreviewOpen(false)} disabled={migrating}>
             {lang === 'zh' ? '取消' : 'Cancel'}
           </Button>,
-          <Button
-            key="ok"
-            type="primary"
-            danger
-            loading={migrating}
-            disabled={previewBlocked || !preview}
-            onClick={confirmMigrate}
-          >
+          <Button key="ok" type="primary" danger loading={migrating} disabled={previewBlocked || !preview} onClick={confirmMigrate}>
             {lang === 'zh' ? '开始升级' : 'Upgrade'}
           </Button>,
         ]}
       >
         {preview && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {preview.blockers.length > 0 && (
-              <Alert
-                type="error"
-                showIcon
-                message={preview.blockers.join('；')}
-              />
-            )}
+            {preview.blockers.length > 0 && <Alert type="error" showIcon message={preview.blockers.join('；')} />}
             <div style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
               {lang === 'zh'
                 ? `共 ${preview.items.length} 项，合计 ${formatBytes(preview.total_bytes)}。迁移为同卷重命名，瞬时完成；任一项失败会整体回滚。`
                 : `${preview.items.length} items, ${formatBytes(preview.total_bytes)} total. Moves are same-volume renames and roll back on any failure.`}
             </div>
-            <div style={{ maxHeight: 320, overflow: 'auto', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-lg)' }}>
+            <div
+              style={{
+                maxHeight: 320,
+                overflow: 'auto',
+                border: '1px solid var(--color-border-subtle)',
+                borderRadius: 'var(--radius-lg)',
+              }}
+            >
               {preview.items.length === 0 ? (
                 <div style={{ padding: 16, fontSize: 13, color: 'var(--color-text-tertiary)' }}>
                   {lang === 'zh' ? '没有需要移动的内容，升级只会建立新目录结构。' : 'Nothing to move; the upgrade only creates the new directory structure.'}
                 </div>
-              ) : preview.items.map(item => (
-                <div key={`${item.from}->${item.to}`} style={{
-                  display: 'flex', justifyContent: 'space-between', gap: 12,
-                  padding: '8px 12px', borderBottom: '1px solid var(--color-border-subtle)', fontSize: 12,
-                }}>
-                  <div style={{ minWidth: 0, wordBreak: 'break-all' }}>
-                    <code>{item.from}</code>
-                    <ArrowRightOutlined style={{ margin: '0 6px', color: 'var(--color-text-tertiary)' }} />
-                    <code>{item.to}</code>
+              ) : (
+                preview.items.map((item) => (
+                  <div
+                    key={`${item.from}->${item.to}`}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      padding: '8px 12px',
+                      borderBottom: '1px solid var(--color-border-subtle)',
+                      fontSize: 12,
+                    }}
+                  >
+                    <div style={{ minWidth: 0, wordBreak: 'break-all' }}>
+                      <code>{item.from}</code>
+                      <ArrowRightOutlined style={{ margin: '0 6px', color: 'var(--color-text-tertiary)' }} />
+                      <code>{item.to}</code>
+                    </div>
+                    <span style={{ whiteSpace: 'nowrap', color: 'var(--color-text-tertiary)' }}>{formatBytes(item.bytes)}</span>
                   </div>
-                  <span style={{ whiteSpace: 'nowrap', color: 'var(--color-text-tertiary)' }}>{formatBytes(item.bytes)}</span>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         )}

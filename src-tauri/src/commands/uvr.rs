@@ -224,6 +224,11 @@ pub(crate) async fn do_separate_vocals_streaming(
     let executor = PythonExecutor::new(state.project_root.clone(), state.data_dir.clone());
     let project_root = state.project_root.clone();
     let (vocal_dir, instrumental_dir) = resolve_output_dirs(&request, state).await;
+    let settings = crate::download_settings::DownloadSettings::load(&state.db).await;
+    let pip_extra = match settings.pip_index_url() {
+        Some(url) => serde_json::json!(["--index-url", url]).to_string(),
+        None => "[]".to_string(),
+    };
 
     let python_code = format!(
         r#"
@@ -233,6 +238,9 @@ sys.path.insert(0, r'{project_root}')
 sys.stderr.write("UVR_DEBUG_PYTHON=" + sys.executable + "\n")
 sys.stderr.flush()
 
+# pip 源（来自应用设置）
+PIP_EXTRA = {pip_extra}
+
 # ── 自愈：检测 audio_separator 是否可用，打包 App 首次运行时可能缺失 ──
 try:
     import audio_separator
@@ -240,7 +248,7 @@ except ImportError:
     sys.stdout.write("[UVR_PROGRESS] 正在安装 audio-separator（首次运行），请稍候...\n")
     sys.stdout.flush()
     result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "audio-separator>=0.44.0", "--quiet"],
+        [sys.executable, "-m", "pip", "install", "audio-separator>=0.44.0", "--quiet"] + PIP_EXTRA,
         capture_output=True, text=True, timeout=300,
     )
     if result.returncode != 0:

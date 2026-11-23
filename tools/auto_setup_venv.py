@@ -3,18 +3,76 @@
 用户无需手动配置 Python 环境，开箱即用。
 每行以 [SETUP] 标记输出，前端通过 Tauri 事件流捕获。
 """
+import argparse
 import os
 import sys
 import subprocess
 import platform
 from pathlib import Path
+from urllib.request import Request, urlopen
 
 VERSION_REQUIRED = (3, 10)
+
+# ── pip 源：auto | official | tuna | aliyun | custom ─────────────────
+_parser = argparse.ArgumentParser(add_help=False)
+_parser.add_argument("--pip-source", default="auto")
+_parser.add_argument("--pip-index", default="")
+_known, _unknown = _parser.parse_known_args()
+
+PIP_SOURCE = (_known.pip_source or "auto").strip().lower()
+PIP_INDEX_OVERRIDE = (_known.pip_index or "").strip()
+
+OFFICIAL_PYPI = None  # None 表示 pip 默认源
+TUNA_PYPI = "https://pypi.tuna.tsinghua.edu.cn/simple"
+ALIYUN_PYPI = "https://mirrors.aliyun.com/pypi/simple/"
+
+_pypi_probe = {}
 
 
 def emit(msg):
     print(f"[SETUP] {msg}")
     sys.stdout.flush()
+
+
+def _pypi_reachable(timeout=4):
+    """探测官方 PyPI 是否可达，结果缓存。"""
+    if "ok" in _pypi_probe:
+        return _pypi_probe["ok"]
+    ok = False
+    try:
+        req = Request("https://pypi.org/simple/pip/", headers={"User-Agent": "Mozilla/5.0"})
+        with urlopen(req, timeout=timeout) as response:
+            response.read(1)
+            ok = True
+    except Exception:
+        ok = False
+    _pypi_probe["ok"] = ok
+    return ok
+
+
+def pip_indexes():
+    """按优先级返回 pip 源列表；None 表示官方默认源。"""
+    if PIP_SOURCE == "official":
+        return [OFFICIAL_PYPI]
+    if PIP_SOURCE == "tuna":
+        return [TUNA_PYPI, OFFICIAL_PYPI]
+    if PIP_SOURCE == "aliyun":
+        return [ALIYUN_PYPI, OFFICIAL_PYPI]
+    if PIP_SOURCE == "custom" and PIP_INDEX_OVERRIDE:
+        return [PIP_INDEX_OVERRIDE, OFFICIAL_PYPI]
+    # auto：官方可达则先官方，否则先用清华镜像
+    return [OFFICIAL_PYPI, TUNA_PYPI] if _pypi_reachable() else [TUNA_PYPI, OFFICIAL_PYPI]
+
+
+def index_label(index_url):
+    return "官方 PyPI" if index_url is None else index_url
+
+
+def pip_install_cmd(python_bin, args, index_url):
+    cmd = [str(python_bin), "-m", "pip", "install"] + args
+    if index_url:
+        cmd += ["--index-url", index_url]
+    return cmd
 
 
 def get_app_data_dir():
@@ -129,36 +187,44 @@ def setup_venv(python_bin: Path, venv_path: Path):
 
 def install_requirements(venv_path: Path, req_path: Path):
     python_bin = venv_path / "bin" / "python"
-    pip_bin = venv_path / "bin" / "pip"
+    indexes = pip_indexes()
 
+    emit("pip 源: " + " → ".join(index_label(i) for i in indexes))
     emit("正在升级 pip...")
-    subprocess.run(
-        [str(python_bin), "-m", "pip", "install", "--upgrade", "pip", "--quiet"],
-        capture_output=True, text=True, timeout=120
-    )
+    for index_url in indexes:
+        result = subprocess.run(
+            pip_install_cmd(python_bin, ["--upgrade", "pip", "--quiet"], index_url),
+            capture_output=True, text=True, timeout=120,
+        )
+        if result.returncode == 0:
+            break
 
     emit("正在安装 Python 依赖 (首次安装可能需要 5-15 分钟)...")
-    process = subprocess.Popen(
-        [
-            str(python_bin), "-m", "pip", "install",
-            "-r", str(req_path),
-            "--progress-bar", "on",
-        ],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, bufsize=1,
-    )
+    for index_url in indexes:
+        emit(f"使用 {index_label(index_url)} 安装依赖...")
+        process = subprocess.Popen(
+            pip_install_cmd(
+                python_bin,
+                ["-r", str(req_path), "--progress-bar", "on"],
+                index_url,
+            ),
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1,
+        )
 
-    for line in process.stdout:
-        line = line.strip()
-        if line:
-            emit(line)
+        for line in process.stdout:
+            line = line.strip()
+            if line:
+                emit(line)
 
-    process.wait()
-    if process.returncode != 0:
-        emit("依赖安装出现错误，请检查网络连接后重启应用")
-        return False
-    emit("Python 依赖安装完成")
-    return True
+        process.wait()
+        if process.returncode == 0:
+            emit("Python 依赖安装完成")
+            return True
+        emit(f"{index_label(index_url)} 安装失败，尝试下一个源...")
+
+    emit("依赖安装出现错误，请检查网络连接后重启应用")
+    return False
 
 
 def verify_imports(venv_path: Path):
@@ -254,10 +320,13 @@ def main():
     # 见: SSL: UNEXPECTED_EOF_WHILE_READING（GitHub API 连接失败）
     venv_python = venv_path / "bin" / "python"
     emit("正在更新 SSL 证书...")
-    subprocess.run(
-        [str(venv_python), "-m", "pip", "install", "--upgrade", "certifi", "--quiet"],
-        capture_output=True, text=True, timeout=60,
-    )
+    for index_url in pip_indexes():
+        result = subprocess.run(
+            pip_install_cmd(venv_python, ["--upgrade", "certifi", "--quiet"], index_url),
+            capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode == 0:
+            break
 
     # ── 每次启动都验证关键依赖 ──────────────────────────────────────
     # 即使 venv 已存在且 .installed 已设置，也须验证，因为包可能在
@@ -274,14 +343,22 @@ def main():
         for pkg in missing:
             pip_name = pip_name_map.get(pkg, pkg)
             emit(f"  安装 {pip_name}...")
-            result = subprocess.run(
-                [str(venv_python), "-m", "pip", "install", pip_name],
-                capture_output=True, text=True, timeout=300,
-            )
-            if result.returncode == 0:
+            installed = False
+            last_err = ""
+            for index_url in pip_indexes():
+                result = subprocess.run(
+                    pip_install_cmd(venv_python, [pip_name], index_url),
+                    capture_output=True, text=True, timeout=300,
+                )
+                if result.returncode == 0:
+                    installed = True
+                    break
+                last_err = result.stderr.strip()
+                emit(f"  {index_label(index_url)} 安装失败，尝试下一个源...")
+            if installed:
                 emit(f"  ✓ {pkg} 安装成功")
             else:
-                emit(f"  ✗ {pkg} 安装失败: {result.stderr.strip()}")
+                emit(f"  ✗ {pkg} 安装失败: {last_err}")
                 all_ok = False
         if not all_ok:
             # 删除 .installed 标志，下次启动时触发完整重装

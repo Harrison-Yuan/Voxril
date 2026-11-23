@@ -103,7 +103,7 @@ Scroll down on the same page and expand **合成作品 (Merge)** → click **合
    xattr -dr com.apple.quarantine /Applications/Voxril.app
    ```
 
-3. The first launch sets everything up by itself — it installs its Python environment and downloads the models (~1 GB). Progress is shown in the app; **don't quit while it's running**. If downloads stall (common on networks where `huggingface.co` is blocked), open **设置 (Settings) → 模型下载源** and pick **国内镜像 (China mirror)**. Interrupted downloads resume from the breakpoint when you retry.
+3. The first launch sets everything up by itself — it installs its Python environment and downloads the models (~1 GB). Progress is shown in the app; **don't quit while it's running**. If downloads stall (common on networks where `huggingface.co` or PyPI is slow), open **设置 (Settings) → 模型与依赖下载源**: pick **国内镜像** for models and **清华镜像** for Python packages. Interrupted model downloads resume from the breakpoint when you retry.
 4. In **设置 (Settings)** pick a folder for your workspace (e.g. a new "Covers" folder on your Desktop), then restart the app.
 5. Open **模型管理 (Models)** — every row should be a green **已就绪**. Anything red needs a click on **下载**.
 
@@ -159,6 +159,7 @@ Five words that appear everywhere in the app:
 | Can I skip installing Python? | No — install Python 3.10+ first, then restart Voxril |
 | macOS won't open the app | Use the Terminal line above, or right-click the icon → **Open** |
 | Model download stalls or fails | **设置 → 模型下载源** → **国内镜像**; downloads resume from where they stopped, and a failed source falls back to the next one |
+| Python setup is slow or times out | **设置 → Python 依赖源** → **清华镜像** (or Aliyun), then restart Voxril |
 | How long does training take? | Depends on your data and Mac; it's long — start it before bed |
 | Can I stop halfway? | Training resumes from the last checkpoint; don't quit during the first model download |
 | The result sounds off-key | Set **变调** back to 0, then try ±1; if it still sounds odd, lower **检索特征比例** |

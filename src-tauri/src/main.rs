@@ -127,9 +127,10 @@ async fn main() {
                  let setup_h = handle.clone();
 
                  // 启动自动下载也要遵循用户在设置里选择的下载源
-                 let download_args = {
+                 let (download_args, pip_args) = {
                      let state = handle.state::<AppState>();
-                     crate::download_settings::DownloadSettings::load(&state.db).await.cli_args()
+                     let settings = crate::download_settings::DownloadSettings::load(&state.db).await;
+                     (settings.cli_args(), settings.pip_cli_args())
                  };
 
                  // ═══════════════════════════════════════════════
@@ -147,7 +148,7 @@ async fn main() {
                      }
                  }
                  let _ = executor
-                     .run_script_streaming("tools/auto_setup_venv.py", vec![], move |line| {
+                     .run_script_streaming("tools/auto_setup_venv.py", pip_args, move |line| {
                          if line.starts_with("[SETUP]") {
                              let _ = setup_h.emit("setup-log", &line);
                          }
