@@ -973,9 +973,12 @@ pub async fn download_base_model(
     app: tauri::AppHandle,
 ) -> Result<bool, String> {
     let executor = PythonExecutor::new(state.project_root.clone(), state.data_dir.clone());
+    let settings = crate::download_settings::DownloadSettings::load(&state.db).await;
+    let mut args = vec!["download".to_string(), model_id.clone()];
+    args.extend(settings.cli_args());
     let mut cmd = executor.build_command(
         "tools/check_download_models.py",
-        vec!["download".to_string(), model_id.clone()],
+        args,
         10, // background download
     );
     

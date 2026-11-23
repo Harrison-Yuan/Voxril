@@ -2,15 +2,25 @@ import { useState, useEffect } from 'react'
 import { Input, Button, message, Alert, Select, Modal, Tag, Space, Spin } from 'antd'
 import {
   FolderOpenOutlined, SaveOutlined, ReloadOutlined, SettingOutlined,
-  DatabaseOutlined, ClearOutlined, ArrowRightOutlined,
+  DatabaseOutlined, ClearOutlined, ArrowRightOutlined, CloudDownloadOutlined,
 } from '@ant-design/icons'
 import { workspaceApi } from '@/api/database'
+import { downloadApi } from '@/api/download'
+import type { DownloadSettings, DownloadSource } from '@/api/download'
 import { layoutApi } from '@/api/layout'
 import type { LayoutStatus, MigrationPreview } from '@/api/layout'
 import { storageApi } from '@/api/storage'
 import type { StorageReport } from '@/api/storage'
 import { useI18n, type Lang } from '../../i18n'
 import { formatBytes } from '@/lib/formatBytes'
+
+/** 下载源选项，顺序即设置页展示顺序。 */
+const SOURCE_OPTIONS: { value: DownloadSource; zh: string; en: string }[] = [
+  { value: 'auto', zh: '自动（推荐）', en: 'Auto (recommended)' },
+  { value: 'official', zh: '官方源', en: 'Official only' },
+  { value: 'cn', zh: '国内镜像', en: 'China mirror' },
+  { value: 'custom', zh: '自定义', en: 'Custom' },
+]
 
 export default function SettingsPage() {
   const { t, lang, setLang } = useI18n()
@@ -31,7 +41,16 @@ export default function SettingsPage() {
   const [reclaiming, setReclaiming] = useState(false)
   const [deepCleaning, setDeepCleaning] = useState(false)
 
-  useEffect(() => { loadWorkspace() }, [])
+  // 模型下载源
+  const [download, setDownload] = useState<DownloadSettings>({
+    source: 'auto', hf_endpoint: '', gh_proxy: '',
+  })
+  const [downloadSaving, setDownloadSaving] = useState(false)
+
+  const loadDownloadSettings = async () => {
+    try { setDownload(await downloadApi.get()) }
+    catch { /* 下载设置仅用于配置，读取失败保持默认值 */ }
+  }
 
   const loadWorkspace = async () => {
     setFetching(true)
@@ -53,6 +72,20 @@ export default function SettingsPage() {
     try { setReport(await storageApi.getReport()) }
     catch (e: any) { message.error(`统计存储占用失败：${e?.message || e}`) }
     finally { setReportLoading(false) }
+  }
+
+  useEffect(() => {
+    loadWorkspace()
+    loadDownloadSettings()
+  }, [])
+
+  const handleSaveDownload = async () => {
+    setDownloadSaving(true)
+    try {
+      await downloadApi.set(download)
+      message.success(t('common.done'))
+    } catch (e: any) { message.error(`保存下载设置失败：${e?.message || e}`) }
+    finally { setDownloadSaving(false) }
   }
 
   const handleSave = async () => {
@@ -131,6 +164,27 @@ export default function SettingsPage() {
 
   const previewBlocked = (preview?.blockers.length ?? 0) > 0
 
+  const sourceHint = (() => {
+    switch (download.source) {
+      case 'official':
+        return lang === 'zh'
+          ? '始终使用 huggingface.co 与 github.com 直连，适合海外网络。'
+          : 'Always use huggingface.co and github.com directly; best for networks outside China.'
+      case 'cn':
+        return lang === 'zh'
+          ? '优先使用 hf-mirror.com 与 GitHub 加速前缀，适合国内网络；失败后仍会回退官方源。'
+          : 'Prefer hf-mirror.com and a GitHub proxy; falls back to official sources on failure.'
+      case 'custom':
+        return lang === 'zh'
+          ? '先使用你填写的端点，失败后回退官方源。'
+          : 'Use your endpoints first, then fall back to official sources.'
+      default:
+        return lang === 'zh'
+          ? '自动探测官方源，不可达时切换到国内镜像；下载中断后再次点击会从断点继续。'
+          : 'Probes the official source first, falls back to a mirror, and resumes interrupted downloads.'
+    }
+  })()
+
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
       {/* Header */}
@@ -162,6 +216,62 @@ export default function SettingsPage() {
           <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: '8px 0 0' }}>
             {lang === 'zh' ? '切换后立即生效，下次启动自动记住。' : 'Takes effect immediately. Your preference will be remembered on next launch.'}
           </p>
+        </div>
+      </div>
+
+      {/* Model Download Source Card */}
+      <div className="ant-card" style={{ padding: 0, marginBottom: 20 }}>
+        <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--color-border-subtle)', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600 }}>
+          <CloudDownloadOutlined />
+          {lang === 'zh' ? '模型下载源' : 'Model download source'}
+        </div>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: 0 }}>
+            {lang === 'zh'
+              ? '基础模型支持多源下载、断点续传与 SHA256 校验；下载失败会自动切换下一个源。'
+              : 'Base models support multiple sources, resume and SHA256 checks; a failed download moves on to the next source.'}
+          </p>
+
+          <Select
+            value={download.source}
+            onChange={(v: DownloadSource) => setDownload(d => ({ ...d, source: v }))}
+            style={{ width: 240 }}
+            options={SOURCE_OPTIONS.map(o => ({ value: o.value, label: lang === 'zh' ? o.zh : o.en }))}
+          />
+          <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: 0 }}>
+            {sourceHint}
+          </p>
+
+          {download.source === 'custom' && (
+            <>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                  {lang === 'zh' ? 'HuggingFace 端点' : 'HuggingFace endpoint'}
+                </div>
+                <Input
+                  value={download.hf_endpoint}
+                  onChange={e => setDownload(d => ({ ...d, hf_endpoint: e.target.value }))}
+                  placeholder="https://hf-mirror.com"
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                  {lang === 'zh' ? 'GitHub 加速前缀（可选）' : 'GitHub proxy prefix (optional)'}
+                </div>
+                <Input
+                  value={download.gh_proxy}
+                  onChange={e => setDownload(d => ({ ...d, gh_proxy: e.target.value }))}
+                  placeholder="https://ghfast.top"
+                />
+              </div>
+            </>
+          )}
+
+          <div>
+            <Button type="primary" icon={<SaveOutlined />} onClick={handleSaveDownload} loading={downloadSaving}>
+              {t('common.save')}
+            </Button>
+          </div>
         </div>
       </div>
 

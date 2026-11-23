@@ -1,5 +1,6 @@
 pub mod workspace;
 pub mod config;
+pub mod download;
 pub mod history;
 pub mod workflow;
 pub mod train;

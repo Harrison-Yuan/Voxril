@@ -5,6 +5,7 @@ mod cleanup;
 mod commands;
 mod database;
 mod decode_audio;
+mod download_settings;
 #[cfg(target_os = "macos")]
 mod dock_menu;
 mod events;
@@ -125,6 +126,12 @@ async fn main() {
              tokio::spawn(async move {
                  let setup_h = handle.clone();
 
+                 // 启动自动下载也要遵循用户在设置里选择的下载源
+                 let download_args = {
+                     let state = handle.state::<AppState>();
+                     crate::download_settings::DownloadSettings::load(&state.db).await.cli_args()
+                 };
+
                  // ═══════════════════════════════════════════════
                  //  启动时自动清理垃圾数据
                  // ═══════════════════════════════════════════════
@@ -148,10 +155,12 @@ async fn main() {
                      .await;
 
                  let cleanup_h = handle.clone();
+                 let mut clean_args = vec!["clean".to_string()];
+                 clean_args.extend(download_args.clone());
                  let _ = model_executor
                      .run_script_streaming(
                          "tools/check_download_models.py",
-                         vec!["clean".to_string()],
+                         clean_args,
                          move |line| {
                              if line.starts_with("[MODEL]") {
                                  let _ = cleanup_h.emit("model-download-log", line);
@@ -165,7 +174,7 @@ async fn main() {
                  let _ = model_executor
                      .run_script_streaming(
                          "tools/check_download_models.py",
-                         vec![],
+                         download_args,
                          move |line| {
                              if line.starts_with("[MODEL]") || line.starts_with("[DONE]") {
                                  let _ = model_h.emit("model-download-log", line);
@@ -189,6 +198,8 @@ async fn main() {
             commands::config::delete_config,
             commands::config::get_last_experiment,
             commands::config::set_last_experiment,
+            commands::download::get_download_settings,
+            commands::download::set_download_settings,
             commands::history::get_all_history,
             commands::history::add_history,
             commands::history::update_history,
