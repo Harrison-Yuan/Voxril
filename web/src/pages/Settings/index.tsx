@@ -1,9 +1,23 @@
 import { useState, useEffect } from 'react'
 import { Input, Button, message, Alert, Select, Modal, Tag, Space, Spin } from 'antd'
-import { FolderOpenOutlined, SaveOutlined, ReloadOutlined, SettingOutlined, DatabaseOutlined, ClearOutlined, ArrowRightOutlined, CloudDownloadOutlined } from '@ant-design/icons'
+import {
+  FolderOpenOutlined,
+  SaveOutlined,
+  ReloadOutlined,
+  SettingOutlined,
+  DatabaseOutlined,
+  ClearOutlined,
+  ArrowRightOutlined,
+  CloudDownloadOutlined,
+  SyncOutlined,
+  ExportOutlined,
+  InfoCircleOutlined,
+} from '@ant-design/icons'
 import { workspaceApi } from '@/api/database'
 import { downloadApi } from '@/api/download'
 import type { DownloadSettings, DownloadSource, PipSource } from '@/api/download'
+import { updateApi } from '@/api/update'
+import { GUIDE_URLS, RELEASES_URL } from '@/lib/links'
 import { layoutApi } from '@/api/layout'
 import type { LayoutStatus, MigrationPreview } from '@/api/layout'
 import { storageApi } from '@/api/storage'
@@ -56,6 +70,10 @@ export default function SettingsPage() {
     pip_index: '',
   })
   const [downloadSaving, setDownloadSaving] = useState(false)
+
+  // 关于 / 检查更新
+  const [checkingUpdate, setCheckingUpdate] = useState(false)
+  const [currentVersion, setCurrentVersion] = useState('')
 
   const loadDownloadSettings = async () => {
     try {
@@ -111,6 +129,29 @@ export default function SettingsPage() {
       message.error(`保存下载设置失败：${e?.message || e}`)
     } finally {
       setDownloadSaving(false)
+    }
+  }
+
+  const handleCheckUpdate = async () => {
+    setCheckingUpdate(true)
+    try {
+      const info = await updateApi.check()
+      setCurrentVersion(info.current)
+      if (!info.has_update) {
+        message.success(t('update.up_to_date').replace('{version}', info.current))
+        return
+      }
+      Modal.confirm({
+        title: t('update.dialog_title').replace('{version}', info.latest),
+        content: t('update.dialog_desc'),
+        okText: t('update.download'),
+        cancelText: t('common.cancel'),
+        onOk: () => updateApi.open(info.url),
+      })
+    } catch {
+      message.error(t('update.failed'))
+    } finally {
+      setCheckingUpdate(false)
     }
   }
 
@@ -571,6 +612,50 @@ export default function SettingsPage() {
               {lang === 'zh' ? '统计存储占用' : 'Scan storage'}
             </Button>
           )}
+        </div>
+      </div>
+
+      {/* About Card */}
+      <div className="ant-card" style={{ padding: 0, marginTop: 20 }}>
+        <div
+          style={{
+            padding: '12px 20px',
+            borderBottom: '1px solid var(--color-border-subtle)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        >
+          <InfoCircleOutlined />
+          {t('about.title')}
+        </div>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
+              {t('settings.version')}
+              {currentVersion ? ` · v${currentVersion}` : ''}
+            </span>
+            <Button size="small" icon={<SyncOutlined />} loading={checkingUpdate} onClick={handleCheckUpdate}>
+              {t('update.check')}
+            </Button>
+          </div>
+
+          <Space size={16} wrap>
+            <Button
+              type="link"
+              size="small"
+              style={{ padding: 0, height: 'auto', fontSize: 12 }}
+              icon={<ExportOutlined />}
+              onClick={() => void updateApi.open(lang === 'zh' ? GUIDE_URLS.zh : GUIDE_URLS.en)}
+            >
+              {t('about.guide')}
+            </Button>
+            <Button type="link" size="small" style={{ padding: 0, height: 'auto', fontSize: 12 }} icon={<ExportOutlined />} onClick={() => void updateApi.open(RELEASES_URL)}>
+              {t('about.releases')}
+            </Button>
+          </Space>
         </div>
       </div>
 

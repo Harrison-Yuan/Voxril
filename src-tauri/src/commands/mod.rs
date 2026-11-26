@@ -10,6 +10,8 @@ pub mod cover;
 pub mod file;
 pub mod layout;
 pub mod storage;
+pub mod update;
+pub mod env;
 pub mod outputs;
 pub mod audio;
 pub mod live;

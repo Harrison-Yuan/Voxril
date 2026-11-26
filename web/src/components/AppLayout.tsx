@@ -1,5 +1,7 @@
 import { Layout } from 'antd'
 import TitleBar from './TitleBar'
+import UpdateBanner from './UpdateBanner'
+import OnboardingBanner from './OnboardingBanner'
 
 const { Content } = Layout
 
@@ -18,6 +20,8 @@ export default function AppLayout({ children }: Props) {
         margin: '0 auto',
         width: '100%',
       }}>
+        <UpdateBanner />
+        <OnboardingBanner />
         {children}
       </Content>
     </Layout>
