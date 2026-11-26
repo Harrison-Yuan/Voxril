@@ -9,7 +9,7 @@
 | 🟢 非常欢迎 | 明确的 Bug 修复 | 崩溃、爆音、路径错误、UI 状态错乱 |
 | 🟢 非常欢迎 | 交互与体验改进 | 减少点击、文案更清楚、错误提示更可操作 |
 | 🟢 非常欢迎 | 文档与教程 | README、截图、新手排错、英文翻译 |
-| 🟢 非常欢迎 | 平台适配 | Windows 运行时适配（构建配置已预留） |
+| 🟢 非常欢迎 | 平台适配 | Windows 版打磨（CPU 推理性能、设备兼容、安装包体验） |
 | 🟡 需要先讨论 | 模型/算法/音质改动 | 换模型、改推理参数默认值、改训练超参 |
 | 🔴 不接受 | 与项目定位无关的改动 | 大规模重构、换框架、加商业化 SDK |
 
@@ -19,7 +19,7 @@
 
 前置条件：
 
-- macOS 14+ / Apple Silicon（Intel 与 Windows 暂不支持）
+- macOS 14+ / Apple Silicon（Intel Mac 不支持；Windows 版有安装包，但下面的开发流程以 macOS 为准）
 - Xcode Command Line Tools、Rust 工具链
 - Node 20+、pnpm 10+
 - Python 3.10+（Homebrew 安装）
@@ -94,7 +94,7 @@ python tools/verify_build_deps.py --quick
 ## 第一次贡献从哪里开始
 
 - 看 [`docs/contributor-tasks.md`](docs/contributor-tasks.md) 里的任务清单，或在 Issue 列表筛选 `good first issue`
-- 最容易上手的方向：界面文案与交互、i18n 英文化、README 教程与截图、错误提示、Windows 适配
+- 最容易上手的方向：界面文案与交互、i18n 英文化、README 教程与截图、错误提示、Windows 体验打磨
 - 不确定怎么改，可以开 Issue 只描述现象，附上截图或日志，也是一种贡献
 
 ---
@@ -103,7 +103,7 @@ python tools/verify_build_deps.py --quick
 
 Thanks for helping improve Voxril.
 
-- **Most wanted:** bug fixes, UI/UX polish, docs and tutorials, translations, Windows support.
+- **Most wanted:** bug fixes, UI/UX polish, docs and tutorials, translations, Windows experience polish.
 - **Discuss first:** changes to models, algorithms or audio-quality defaults — open an issue before writing code.
 - **Dev setup:** macOS 14+ on Apple Silicon, Python 3.10+, Node 20+, pnpm 10+, Rust. `pnpm install`, then `pnpm dev`. For UI-only work, `pnpm -C web dev` renders the interface in a browser (Tauri commands will have no data).
 - **Before opening a PR:** `pnpm -C web run build`, `cargo check --manifest-path src-tauri/Cargo.toml`, `python -m compileall -q infer tools configs`.

@@ -36,12 +36,6 @@ fn voxril_bin() -> String {
         .to_string()
 }
 
-pub fn get_app_data_dir() -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("com.rvc.webui")
-}
-
 fn check_python_version(path: &PathBuf) -> bool {
     let output = crate::platform::quiet_command(&path.to_string_lossy())
         .arg("--version")

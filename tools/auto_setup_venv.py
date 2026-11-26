@@ -79,6 +79,10 @@ def pip_install_cmd(python_bin, args, index_url):
 
 
 def get_app_data_dir():
+    # Rust 侧解析好的数据目录（可能跟随安装目录）优先，保证双方用同一个位置
+    override = os.environ.get("RVC_DATA_DIR")
+    if override:
+        return Path(override)
     home = Path.home()
     if platform.system() == "Darwin":
         return home / "Library" / "Application Support" / "com.rvc.webui"

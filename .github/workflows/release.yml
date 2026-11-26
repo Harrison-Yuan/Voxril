@@ -192,16 +192,25 @@ jobs:
           body: |
             ## 下载即用
 
-            1. 下载下面的 `.dmg`
-            2. 双击打开，把 **Voxril** 拖进「应用程序」
-            3. 首次启动会自动安装 Python 依赖并下载模型（需要本机已有 Python 3.10+）
+            1. 到下方 Assets 下载安装包：macOS 选 `.dmg`，Windows 选 `x64-setup.exe`
+            2. macOS：双击 `.dmg`，把 **Voxril** 拖进「应用程序」；Windows：运行安装包，可在「选择安装位置」页面自定义安装目录
+            3. 首次启动会先让你确认数据目录（默认 `<安装目录>\data`，弹窗显示该磁盘剩余空间，C 盘紧张可换盘）；随后自动创建内置 Python 环境并下载模型（约 1 GB），进度显示在界面里，**这段时间别关掉它**
 
-            ## 系统要求
+            ## 硬件要求
 
-            - macOS 14.0 (Sonoma) 及以上
-            - Apple Silicon（M1 / M2 / M3 / M4），不支持 Intel Mac
+            | 项目 | 最低 | 推荐 |
+            |---|---|---|
+            | 系统 | macOS 14 (Sonoma) / Windows 10、11（64 位） | 最新正式版 |
+            | 芯片 | Apple Silicon M1 / x64 CPU | M2、M3、M4（Pro / Max 训练更快） |
+            | 内存 | 8 GB | 16 GB 及以上 |
+            | 硬盘 | 6 GB 可用空间（仅安装 + 基础模型） | 20 GB 以上（含训练数据与批次权重） |
+            | 显卡 | 不需要独立显卡 | — |
+            | 网络 | 首次启动需联网 | 之后可完全离线 |
 
-            ## 打不开怎么办
+            - 不支持 Intel Mac；Python 已内置，无需自己安装。
+            - macOS 走 PyTorch MPS 加速；Windows 版默认 CPU 推理。
+
+            ## 打不开怎么办（macOS）
 
             如果提示「无法验证开发者」或「已损坏」，执行一次：
 
@@ -215,9 +224,22 @@ jobs:
 
             ### Download & run
 
-            1. Download the `.dmg` below
-            2. Open it and drag **Voxril** into **Applications**
-            3. First launch installs the Python environment and downloads the models
+            1. Grab the installer from Assets below — `.dmg` for macOS, `x64-setup.exe` for Windows
+            2. macOS: open the `.dmg` and drag **Voxril** into **Applications**; Windows: run the installer and pick any folder on the **Choose Install Location** page
+            3. On first launch confirm the data folder (default `<install folder>\data`; the dialog shows free space on that drive — move off `C:` if needed). Then it creates the bundled Python environment and downloads models (~1 GB); progress is shown in the app, **don't quit while it runs**
 
-            Requires macOS 14+ on Apple Silicon and Python 3.10+ installed.
-            Unsigned builds need `xattr -dr com.apple.quarantine /Applications/Voxril.app`.
+            ### Hardware requirements
+
+            | Item | Minimum | Recommended |
+            |---|---|---|
+            | OS | macOS 14 (Sonoma) / Windows 10 or 11 (64-bit) | Latest stable |
+            | Chip | Apple Silicon M1 / x64 CPU | M2, M3, M4 (Pro / Max train faster) |
+            | Memory | 8 GB | 16 GB or more |
+            | Disk | 6 GB free (install + base models) | 20 GB or more (with training data and weights) |
+            | GPU | Not required | — |
+            | Network | Required on first launch | Fully offline afterwards |
+
+            Intel Macs are not supported. Python is bundled; no system Python needed.
+            macOS uses PyTorch MPS; the Windows build runs on CPU by default.
+
+            Unsigned macOS builds need `xattr -dr com.apple.quarantine /Applications/Voxril.app`.

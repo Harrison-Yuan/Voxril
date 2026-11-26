@@ -96,5 +96,5 @@ spctl -a -vv /Applications/Voxril.app     # 应输出 accepted / Notarized Devel
 ## 后续可选项
 
 - **自动更新**：需要接入 `@tauri-apps/plugin-updater` + 签名密钥（`TAURI_SIGNING_PRIVATE_KEY`），并在 Release 提供 `latest.json`
-- **Windows**：`release-windows.yml` 已预留，待运行时适配完成后启用
+- **Windows**：`release-windows.yml` 已启用，推 `v*` tag 会与 macOS 一起上传 `x64-setup.exe`；安装器行为（安装模式、界面语言）在 `src-tauri/tauri.windows.conf.json` 的 `bundle.windows.nsis` 里配置。首次启动会先让用户确认数据目录（默认 `<安装目录>/data`，弹窗显示该卷剩余空间），确认前不会安装环境或下载模型；目录不可写时同样由弹窗引导另选（指针存在 `%LOCALAPPDATA%\com.voxril\data-dir.txt`），不会静默回退系统盘。卸载不删数据目录
 - **通用二进制**：Intel 版本已放弃，暂无计划

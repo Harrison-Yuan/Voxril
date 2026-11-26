@@ -2,13 +2,16 @@
 
 # 🎙️ Voxril
 
-**用自己的声音翻唱任何歌 —— 全程离线跑在这台 Mac 上。**
+**用自己的声音翻唱任何歌 —— 全程离线跑在你自己电脑上。**
 
 选一个音色、选一首歌、点一下。Voxril 会自动拆出人声、把歌声换成你的声音、再贴回伴奏，导出完整的翻唱文件。所有处理都在你自己电脑上完成：不上传、不注册、不订阅。
 
 <p>
   <a href="https://github.com/Harrison-Yuan/Voxril/releases">
     <img src="https://img.shields.io/badge/📥_下载_for_macOS-8A2BE2?style=for-the-badge&logo=apple&logoColor=white" alt="下载 macOS 版">
+  </a>
+  <a href="https://github.com/Harrison-Yuan/Voxril/releases">
+    <img src="https://img.shields.io/badge/📥_下载_for_Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white" alt="下载 Windows 版">
   </a>
   <a href="#-三步做出一首翻唱">
     <img src="https://img.shields.io/badge/🎬_怎么用-三步做翻唱-blue?style=for-the-badge" alt="怎么用">
@@ -21,6 +24,8 @@
 <p>
   <img src="https://img.shields.io/badge/macOS_14+-000?logo=apple&logoColor=fff&style=flat-square" alt="macOS 14+">
   <img src="https://img.shields.io/badge/Apple_Silicon_M1–M4-000?logo=apple&logoColor=fff&style=flat-square" alt="Apple Silicon">
+  <img src="https://img.shields.io/badge/Windows_10/11_x64-000?logo=windows&logoColor=fff&style=flat-square" alt="Windows 10/11">
+  <img src="https://img.shields.io/badge/内存_8_GB_起-000?style=flat-square" alt="8 GB RAM">
   <img src="https://img.shields.io/badge/Tauri_2-000?logo=tauri&logoColor=ffc131&style=flat-square" alt="Tauri 2">
   <img src="https://img.shields.io/badge/React_19-000?logo=react&logoColor=61dafb&style=flat-square" alt="React 19">
   <img src="https://img.shields.io/badge/PyTorch_MPS-000?logo=pytorch&logoColor=ee4c2c&style=flat-square" alt="PyTorch MPS">
@@ -96,18 +101,22 @@ Voxril 启动后就停在 **一键翻唱** 页。点一个按钮，它会自动�
 
 ## 📥 先把它装上（只需一次）
 
-1. 到 [Releases](https://github.com/Harrison-Yuan/Voxril/releases) 下载最新 `.dmg`，把 **Voxril** 拖进「应用程序」，双击打开。
-2. 如果系统不让打开（未签名版本会出现），打开「终端」（`⌘ + 空格` 搜索 `终端` / `Terminal`），把下面这一整行粘进去回车：
+1. 到 [Releases](https://github.com/Harrison-Yuan/Voxril/releases) 下载安装包：macOS 选 `.dmg`（拖进「应用程序」），Windows 选 `x64-setup.exe`，双击打开。
+
+   > **Windows 安装说明**：安装向导会跟随系统语言显示中文 / English，并在 **选择安装位置** 页面支持自定义安装目录（默认 `%LOCALAPPDATA%\Voxril`，装到 D 盘等任意路径都不需要管理员权限）。数据目录（Python 环境与模型）在**首次启动时确认**，默认跟随安装目录。
+
+2. 如果 macOS 不让打开（未签名版本会出现），打开「终端」（`⌘ + 空格` 搜索 `终端` / `Terminal`），把下面这一整行粘进去回车：
 
    ```bash
    xattr -dr com.apple.quarantine /Applications/Voxril.app
    ```
 
-3. 第一次打开它会用内置 Python 运行时创建环境、下载模型（约 1 GB），进度会显示在界面里；**这段时间别关掉它**。如果下载卡住或失败（国内网络访问 `huggingface.co` 或 PyPI 经常如此），打开 **设置 → 模型与依赖下载源**：模型选 **国内镜像**，Python 依赖选 **清华镜像**；模型下载中断后再次下载会从断点继续。
-4. 打开 **设置**，选一个文件夹作为工作区（比如桌面上新建一个「翻唱」），然后重启应用。
-5. 打开 **模型管理**，每一行都显示绿色 **已就绪** 就说明准备好了；有红色的点 **下载**。
+3. 第一次打开会先让你**确认数据目录**——Python 环境与基础模型（约 5 GB）放在这里。默认是 Windows 上的 `<安装目录>\data`（装到 D 盘就全在 D 盘）、macOS 上的 `~/Library/Application Support/com.rvc.webui`；弹窗会显示该磁盘剩余空间，C 盘紧张就换到其他盘。从旧版升级会沿用原目录，不会重新下载。
+4. 确认后它会自动创建内置 Python 环境、下载模型（约 1 GB），进度会显示在界面里；**这段时间别关掉它**。如果下载卡住或失败（国内网络访问 `huggingface.co` 或 PyPI 经常如此），打开 **设置 → 模型与依赖下载源**：模型选 **国内镜像**，Python 依赖选 **清华镜像**；模型下载中断后再次下载会从断点继续。
+5. 打开 **设置**，选一个文件夹作为工作区（比如桌面上新建一个「翻唱」），然后重启应用。
+6. 打开 **模型管理**，每一行都显示绿色 **已就绪** 就说明准备好了；有红色的点 **下载**。
 
-**开始之前你需要：** Apple 芯片的 Mac（M1–M4）、macOS 14 以上、约 6 GB 空闲硬盘，以及首次配置时的网络。Python 已内置，**不需要自己安装**。
+**开始之前你需要：** Apple 芯片的 Mac（M1–M4）、macOS 14 以上、内存 8 GB（推荐 16 GB）、至少 6 GB 空闲硬盘（想训练自己的音色建议预留 20 GB），以及首次配置时的网络。Python 已内置，**不需要自己安装**。完整清单见下方「硬件要求与平台支持」。
 
 ---
 
@@ -158,6 +167,11 @@ Voxril 启动后就停在 **一键翻唱** 页。点一个按钮，它会自动�
 |---|---|
 | 不装 Python 能直接用吗？ | 不需要装 Python，应用已内置运行时；首次配置被中断的话，重启 Voxril 即可继续 |
 | 系统提示打不开 | 用上面那行终端命令，或右键图标选「打开」 |
+| Windows 能装到 D 盘吗？ | 可以。安装向导的「选择安装位置」页面直接改成目标目录即可 |
+| 数据、模型、Python 环境存在哪？ | 首次启动时由你确认。默认：Windows 是安装目录下的 `data/`（装到 D 盘就全在 D 盘），macOS 是 `~/Library/Application Support/com.rvc.webui`。从旧版升级会沿用原来的数据目录，不会重新下载 |
+| 安装目录没有写入权限怎么办？ | 程序会在装任何东西之前弹窗要求另选数据目录（建议非系统盘、预留 20 GB），选完重启生效；不会把几 GB 数据悄悄放到 C 盘 |
+| C 盘满了，能把数据搬到 D 盘吗？ | 可以。设置 → 数据目录 → 更改位置，会复制已有环境与模型（约 5 GB），完成后立即清理旧目录并重启生效 |
+| 卸载会删掉模型吗？ | 不会。卸载只移除程序文件，`data/` 里的模型和 Python 环境会保留，需要时手动删除 |
 | 模型下载卡住 / 失败 | **设置 → 模型与依赖下载源** → 模型侧选 **国内镜像**；中断后重试会从断点续传，某个源失败会自动换下一个 |
 | Python 环境装得慢 / 超时 | **设置 → Python 依赖源** 选 **清华镜像**（或阿里云），然后重启 Voxril |
 | 训练要多久？ | 看数据量和机器，时间很长，建议睡前开始 |
@@ -258,20 +272,28 @@ Voxril 启动后就停在 **一键翻唱** 页。点一个按钮，它会自动�
 ```
 
 <details>
-<summary><b>运行要求与平台支持</b></summary>
+<summary><b>硬件要求与平台支持</b></summary>
 
-| 项目 | 说明 |
-|---|---|
-| 系统 | macOS 14 (Sonoma) 及以上 |
-| 芯片 | Apple Silicon（M1–M4）。**不支持 Intel Mac** —— 随包 ffmpeg 为 arm64，且 MPS 依赖 Apple Silicon |
-| Python | 已内置 CPython 3.12（python-build-standalone），**无需系统 Python** |
-| 磁盘 | 约 6 GB 可用空间（Python 虚拟环境约 4 GB + 基础模型约 1 GB） |
-| 网络 | 首次启动需要联网（PyPI、HuggingFace、UVR 模型仓库） |
+| 项目 | 最低要求 | 推荐 |
+|---|---|---|
+| 系统 | macOS 14 (Sonoma) / Windows 10、11（64 位） | 最新正式版系统 |
+| 芯片 | Apple Silicon M1 / x64 CPU | M2、M3、M4（Pro / Max 训练更快） |
+| 内存 | 8 GB | 16 GB 及以上 |
+| 硬盘 | 6 GB 可用空间 | 20 GB 以上 |
+| 显卡 | 不需要独立显卡 | — |
+| 音频设备 | 任意麦克风（训练录音、实时修音） | 耳机 + 独立麦克风（直播修音防啸叫） |
+| 网络 | 首次启动需联网 | 配置完成后可完全离线 |
+
+- **不支持 Intel Mac**：随包 `ffmpeg` 为 arm64，且 PyTorch 加速依赖 Apple Silicon 的 MPS。
+- **6 GB 只是起步**：应用 + 内置 Python 运行时 + 基础模型。训练时数据集、特征缓存和批次权重会额外占用，30 分钟素材约 1–3 GB；长期训练建议预留 20 GB 以上。
+- **8 GB 内存能跑但会慢**：训练和 BS-RoFormer 人声分离最吃内存，内存不足会大量使用交换空间；16 GB 是舒适线。
+- **不需要独立显卡**：macOS 走 PyTorch MPS（统一内存）；Windows 版默认 CPU 推理，有 NVIDIA 显卡可自行换装 CUDA 版 PyTorch 加速。
+- **Python 已内置**：随包 CPython 3.12，无需自行安装。
 
 | 平台 | 状态 |
 |---|---|
 | macOS 14+ · Apple Silicon（M1–M4） | ✅ 正式支持 —— 提供 DMG，PyTorch MPS 加速 |
-| Windows 10/11 · x64 | 🚧 已预留 —— 构建配置与 CI 已备好，运行时适配待完成 |
+| Windows 10/11 · x64 | ✅ 提供 NSIS 安装包 —— 默认 CPU 推理 |
 
 </details>
 
@@ -338,8 +360,8 @@ pnpm build  # 先递增补丁版本号，再打包 .dmg
 
 ## ⚠️ 已知限制
 
-- **仅支持 Apple Silicon**，暂无 Windows / Linux 版本
-- DMG **未签名、未公证**，首次打开会被 Gatekeeper 拦截
+- **macOS 仅支持 Apple Silicon**（不支持 Intel Mac）；Windows 提供 x64 安装包，默认 CPU 推理；暂无 Linux 版本
+- macOS DMG **未签名、未公证**，首次打开会被 Gatekeeper 拦截
 - 基础模型**不随仓库分发**（体积与授权原因），首次启动时下载
 - 首次配置需要联网安装 Python 依赖并下载模型（无需系统 Python）
 - 新工作区仍默认使用平铺目录，四层布局需要在 **设置 → 工作区布局** 手动迁移
@@ -357,10 +379,10 @@ pnpm build  # 先递增补丁版本号，再打包 .dmg
 - [x] 成品库：星标、定稿、回收站 7 天
 - [x] 按音色管理训练批次，历史权重归档保留
 - [ ] 稳定实时翻唱与桌面歌词窗
-- [ ] 内置 Python 运行时（用户无需自行安装 Python）
-- [ ] 首次使用引导向导
+- [x] 内置 Python 运行时（用户无需自行安装 Python）
+- [x] 首次使用引导向导
 - [ ] 预训练音色展示（下载即玩）
-- [ ] Windows 支持
+- [x] Windows 支持（x64 安装包，默认 CPU 推理）
 
 ---
 
@@ -374,7 +396,7 @@ Voxril 是公开开发的，非常欢迎 PR —— 小改动同样欢迎。
 | 提功能建议 | 开一个 **功能建议**，先说遇到的问题，再说期望的方案 |
 | 修点小东西 | [可以认领的任务](docs/contributor-tasks.md) —— 文案、i18n、文档、测试 |
 | 改模型或音质 | 请先开 Issue 讨论，达成一致再写代码 |
-| 做 Windows 版本 | 构建配置已预留，运行时适配对外开放 |
+| 改进 Windows 体验 | 安装包已提供，欢迎反馈 CPU 推理性能与设备兼容问题 |
 
 - 开发环境、提交前自检和 PR 规则都写在 [CONTRIBUTING.md](CONTRIBUTING.md)
 - 只改界面可以在浏览器里开发：`pnpm -C web dev`，不需要模型和 Python 环境

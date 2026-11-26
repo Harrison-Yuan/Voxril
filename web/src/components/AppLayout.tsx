@@ -2,6 +2,8 @@ import { Layout } from 'antd'
 import TitleBar from './TitleBar'
 import UpdateBanner from './UpdateBanner'
 import OnboardingBanner from './OnboardingBanner'
+import DataDirGuard from './DataDirGuard'
+import DataDirSetup from './DataDirSetup'
 
 const { Content } = Layout
 
@@ -13,13 +15,17 @@ export default function AppLayout({ children }: Props) {
   return (
     <Layout style={{ minHeight: '100vh', background: 'var(--color-bg-app)' }}>
       <TitleBar />
+      <DataDirSetup />
+      <DataDirGuard />
 
-      <Content style={{
-        padding: '28px 32px',
-        maxWidth: 1200,
-        margin: '0 auto',
-        width: '100%',
-      }}>
+      <Content
+        style={{
+          padding: '28px 32px',
+          maxWidth: 1200,
+          margin: '0 auto',
+          width: '100%',
+        }}
+      >
         <UpdateBanner />
         <OnboardingBanner />
         {children}

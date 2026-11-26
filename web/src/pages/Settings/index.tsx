@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Input, Button, message, Alert, Select, Modal, Tag, Space, Spin } from 'antd'
+import { Input, Button, message, Alert, Select, Modal, Tag, Space, Spin, Progress } from 'antd'
 import {
   FolderOpenOutlined,
   SaveOutlined,
@@ -12,11 +12,15 @@ import {
   SyncOutlined,
   ExportOutlined,
   InfoCircleOutlined,
+  SwapOutlined,
 } from '@ant-design/icons'
+import { invoke } from '@tauri-apps/api/core'
 import { workspaceApi } from '@/api/database'
 import { downloadApi } from '@/api/download'
 import type { DownloadSettings, DownloadSource, PipSource } from '@/api/download'
 import { updateApi } from '@/api/update'
+import { envApi } from '@/api/env'
+import type { DataDirStatus } from '@/api/env'
 import { GUIDE_URLS, RELEASES_URL } from '@/lib/links'
 import { layoutApi } from '@/api/layout'
 import type { LayoutStatus, MigrationPreview } from '@/api/layout'
@@ -75,6 +79,21 @@ export default function SettingsPage() {
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [currentVersion, setCurrentVersion] = useState('')
 
+  // 数据目录（Python 环境 + 基础模型）
+  const [dataDir, setDataDir] = useState<DataDirStatus | null>(null)
+  const [dataMigrating, setDataMigrating] = useState(false)
+  const [dataMigratePercent, setDataMigratePercent] = useState(0)
+  const [dataMigrateLog, setDataMigrateLog] = useState('')
+  const [dataMigrateResult, setDataMigrateResult] = useState<string | null>(null)
+
+  const loadDataDir = async () => {
+    try {
+      setDataDir(await envApi.getDataDirStatus())
+    } catch {
+      /* 数据目录状态仅用于展示 */
+    }
+  }
+
   const loadDownloadSettings = async () => {
     try {
       setDownload(await downloadApi.get())
@@ -118,6 +137,7 @@ export default function SettingsPage() {
   useEffect(() => {
     loadWorkspace()
     loadDownloadSettings()
+    loadDataDir()
   }, [])
 
   const handleSaveDownload = async () => {
@@ -153,6 +173,52 @@ export default function SettingsPage() {
     } finally {
       setCheckingUpdate(false)
     }
+  }
+
+  const openDataDir = async () => {
+    if (!dataDir) return
+    try {
+      await invoke('open_in_finder', { path: dataDir.path })
+    } catch {
+      /* 打开目录失败不打断设置页 */
+    }
+  }
+
+  const handleChangeDataDir = async () => {
+    if (!dataDir) return
+    const { open } = await import('@tauri-apps/plugin-dialog')
+    const dir = await open({ directory: true, multiple: false, title: t('datadir.pick_title'), defaultPath: dataDir.path })
+    if (!dir || typeof dir !== 'string') return
+
+    Modal.confirm({
+      title: t('datadir.migrate_confirm_title'),
+      content: (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <span>{t('datadir.migrate_confirm_desc')}</span>
+          <code style={{ fontSize: 12, wordBreak: 'break-all' }}>{dir}</code>
+        </div>
+      ),
+      okText: t('common.continue'),
+      cancelText: t('common.cancel'),
+      onOk: async () => {
+        setDataMigrating(true)
+        setDataMigratePercent(0)
+        setDataMigrateLog('')
+        try {
+          const msg = await envApi.migrateDataDir(dir, (p) => {
+            setDataMigratePercent(p.percent)
+            setDataMigrateLog(p.message)
+          })
+          setDataMigratePercent(100)
+          await loadDataDir()
+          setDataMigrateResult(msg)
+        } catch (e: unknown) {
+          message.error(`${t('datadir.migrate_failed')}：${e instanceof Error ? e.message : String(e)}`)
+        } finally {
+          setDataMigrating(false)
+        }
+      },
+    })
   }
 
   const handleSave = async () => {
@@ -476,6 +542,60 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* Data Directory Card */}
+      <div className="ant-card" style={{ padding: 0, marginBottom: 20 }}>
+        <div
+          style={{
+            padding: '12px 20px',
+            borderBottom: '1px solid var(--color-border-subtle)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        >
+          <FolderOpenOutlined />
+          {t('datadir.card_title')}
+        </div>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: 0 }}>{t('datadir.card_desc')}</p>
+
+          <div
+            style={{
+              padding: '10px 14px',
+              background: 'var(--color-bg-base)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-lg)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+            }}
+          >
+            <FolderOpenOutlined style={{ color: 'var(--color-primary-hover)', flexShrink: 0 }} />
+            <code style={{ fontSize: 12, color: 'var(--color-text-secondary)', wordBreak: 'break-all', flex: 1 }}>{dataDir?.path || t('common.loading')}</code>
+          </div>
+
+          <Space wrap>
+            <Button icon={<SwapOutlined />} onClick={handleChangeDataDir} loading={dataMigrating} disabled={dataMigrating || !dataDir}>
+              {t('datadir.change')}
+            </Button>
+            <Button icon={<FolderOpenOutlined />} onClick={openDataDir} disabled={!dataDir}>
+              {t('datadir.open')}
+            </Button>
+          </Space>
+
+          {dataMigrating && (
+            <div>
+              <Progress percent={dataMigratePercent} size="small" status="active" />
+              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{dataMigrateLog}</span>
+            </div>
+          )}
+
+          <Alert type="info" showIcon style={{ fontSize: 12 }} title={t('datadir.migrate_note')} />
+        </div>
+      </div>
+
       {/* Layout Upgrade Card */}
       <div className="ant-card" style={{ padding: 0, marginBottom: 20 }}>
         <div
@@ -658,6 +778,25 @@ export default function SettingsPage() {
           </Space>
         </div>
       </div>
+
+      {/* 数据目录迁移结果：旧数据已清理，必须重启才能继续使用 */}
+      <Modal
+        open={dataMigrateResult !== null}
+        title={t('datadir.migrate_done')}
+        closable={false}
+        maskClosable={false}
+        keyboard={false}
+        footer={[
+          <Button key="restart" type="primary" icon={<ReloadOutlined />} onClick={() => void envApi.restart()}>
+            {t('datadir.restart')}
+          </Button>,
+        ]}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <span style={{ fontSize: 13 }}>{dataMigrateResult}</span>
+          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{t('datadir.migrate_restart_hint')}</span>
+        </div>
+      </Modal>
 
       {/* Migration Preview Modal */}
       <Modal

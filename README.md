@@ -4,11 +4,14 @@
 
 **Turn any song into a cover sung in your own voice — entirely offline.**
 
-Pick a voice, pick a song, click once. Voxril splits the song, swaps the vocals for your voice and puts the track back together as a finished cover file. Everything runs on your Mac — no cloud, no account, no subscription.
+Pick a voice, pick a song, click once. Voxril splits the song, swaps the vocals for your voice and puts the track back together as a finished cover file. Everything runs on your own computer — no cloud, no account, no subscription.
 
 <p>
   <a href="https://github.com/Harrison-Yuan/Voxril/releases">
     <img src="https://img.shields.io/badge/📥_Download_for_macOS-8A2BE2?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS">
+  </a>
+  <a href="https://github.com/Harrison-Yuan/Voxril/releases">
+    <img src="https://img.shields.io/badge/📥_Download_for_Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows">
   </a>
   <a href="#-three-steps-to-your-first-cover">
     <img src="https://img.shields.io/badge/🎬_How_to_use_in_3_steps-blue?style=for-the-badge" alt="How to use">
@@ -21,6 +24,8 @@ Pick a voice, pick a song, click once. Voxril splits the song, swaps the vocals 
 <p>
   <img src="https://img.shields.io/badge/macOS_14+-000?logo=apple&logoColor=fff&style=flat-square" alt="macOS 14+">
   <img src="https://img.shields.io/badge/Apple_Silicon_M1–M4-000?logo=apple&logoColor=fff&style=flat-square" alt="Apple Silicon">
+  <img src="https://img.shields.io/badge/Windows_10/11_x64-000?logo=windows&logoColor=fff&style=flat-square" alt="Windows 10/11">
+  <img src="https://img.shields.io/badge/8_GB_RAM_or_more-000?style=flat-square" alt="8 GB RAM">
   <img src="https://img.shields.io/badge/Tauri_2-000?logo=tauri&logoColor=ffc131&style=flat-square" alt="Tauri 2">
   <img src="https://img.shields.io/badge/React_19-000?logo=react&logoColor=61dafb&style=flat-square" alt="React 19">
   <img src="https://img.shields.io/badge/PyTorch_MPS-000?logo=pytorch&logoColor=ee4c2c&style=flat-square" alt="PyTorch MPS">
@@ -96,18 +101,22 @@ Scroll down on the same page and expand **合成作品 (Merge)** → click **合
 
 ## 📥 Install it (first time only)
 
-1. Download the latest `.dmg` from [Releases](https://github.com/Harrison-Yuan/Voxril/releases), drag **Voxril** into **Applications**, and open it.
+1. Download the installer from [Releases](https://github.com/Harrison-Yuan/Voxril/releases): `.dmg` for macOS (drag **Voxril** into **Applications**) or `x64-setup.exe` for Windows, then open it.
+
+   > **Windows installer**: the wizard follows the system language (Chinese / English) and lets you change the install folder on the **Choose Install Location** page (default `%LOCALAPPDATA%\Voxril`; any folder such as `D:\Apps\Voxril` works without administrator rights). The data folder (Python environment + models) is confirmed on **first launch** and follows the install folder by default.
+
 2. If macOS refuses to open it (this happens with unsigned builds), paste this into Terminal (`⌘ + Space` → type `Terminal`):
 
    ```bash
    xattr -dr com.apple.quarantine /Applications/Voxril.app
    ```
 
-3. The first launch sets everything up by itself — it creates its bundled Python environment and downloads the models (~1 GB). Progress is shown in the app; **don't quit while it's running**. If downloads stall (common on networks where `huggingface.co` or PyPI is slow), open **设置 (Settings) → 模型与依赖下载源**: pick **国内镜像** for models and **清华镜像** for Python packages. Interrupted model downloads resume from the breakpoint when you retry.
-4. In **设置 (Settings)** pick a folder for your workspace (e.g. a new "Covers" folder on your Desktop), then restart the app.
-5. Open **模型管理 (Models)** — every row should be a green **已就绪**. Anything red needs a click on **下载**.
+3. On first launch Voxril asks you to **confirm the data folder** that holds the Python environment and base models (~5 GB). The default is `<install folder>\data` on Windows (so installing on `D:` keeps everything on `D:`) and `~/Library/Application Support/com.rvc.webui` on macOS; the dialog shows the free space on that drive — move it elsewhere if `C:` is tight. Upgrading from an older version keeps the existing folder and never re-downloads.
+4. Everything else sets itself up — it creates the bundled Python environment and downloads the models (~1 GB). Progress is shown in the app; **don't quit while it's running**. If downloads stall (common on networks where `huggingface.co` or PyPI is slow), open **设置 (Settings) → 模型与依赖下载源**: pick **国内镜像** for models and **清华镜像** for Python packages. Interrupted model downloads resume from the breakpoint when you retry.
+5. In **设置 (Settings)** pick a folder for your workspace (e.g. a new "Covers" folder on your Desktop), then restart the app.
+6. Open **模型管理 (Models)** — every row should be a green **已就绪**. Anything red needs a click on **下载**.
 
-**Before you start you need:** an Apple Silicon Mac (M1–M4) on macOS 14+, ~6 GB of free disk, and internet for that first setup. Python is bundled — you don't need to install it.
+**Before you start you need:** an Apple Silicon Mac (M1–M4) on macOS 14+, 8 GB of RAM (16 GB recommended), at least 6 GB of free disk (20 GB if you plan to train your own voice), and internet for that first setup. Python is bundled — you don't need to install it. See **Hardware requirements & platform support** below for the full list.
 
 ---
 
@@ -149,7 +158,7 @@ Five words that appear everywhere in the app:
 **Three things worth knowing**
 
 - A slow first launch and a long download are normal — don't keep quitting and reopening.
-- Your Mac gets warm and the fans spin during training. That's expected.
+- Your computer gets warm and the fans may spin during training. That's expected.
 - Everything runs on your own machine; your audio is never uploaded.
 
 **Beginner FAQ**
@@ -158,9 +167,14 @@ Five words that appear everywhere in the app:
 |---|---|
 | Do I need to install Python? | No — Voxril ships its own runtime. If first-time setup was interrupted, just restart the app |
 | macOS won't open the app | Use the Terminal line above, or right-click the icon → **Open** |
+| Can I install to another drive on Windows? | Yes — change the folder on the **Choose Install Location** page of the installer |
+| Where are data, models and the Python environment stored? | You confirm this on first launch. Default: the `data/` folder inside the install directory on Windows (install on `D:` and everything stays there), `~/Library/Application Support/com.rvc.webui` on macOS. Upgrades keep using the existing data folder — no re-download |
+| What if the install folder is read-only? | Voxril asks you to pick another data folder before installing anything (prefer a non-system drive, 20 GB free). It never silently puts several GB on `C:` |
+| `C:` is full — can I move data to `D:`? | Yes. Settings → Data folder → Change location copies the existing environment and models (~5 GB), removes the old folder right away, then restart to apply |
+| Does uninstalling delete my models? | No. Uninstall only removes program files; models and the Python environment in `data/` are kept. Delete them manually if you want the space back |
 | Model download stalls or fails | **设置 → 模型与依赖下载源** → choose **国内镜像** for models; downloads resume from where they stopped, and a failed source falls back to the next one |
 | Python setup is slow or times out | **设置 → Python 依赖源** → **清华镜像** (or Aliyun), then restart Voxril |
-| How long does training take? | Depends on your data and Mac; it's long — start it before bed |
+| How long does training take? | Depends on your data and hardware; it's long — start it before bed |
 | Can I stop halfway? | Training resumes from the last checkpoint; don't quit during the first model download |
 | The result sounds off-key | Set **变调** back to 0, then try ±1; if it still sounds odd, lower **检索特征比例** |
 | Can I use covers commercially? | The code is open source; the song belongs to its rights holders — check the licensing yourself |
@@ -258,20 +272,28 @@ song ──▶ vocal separation ─┬─▶ vocals ──▶ HuBERT + F0 ──
 ```
 
 <details>
-<summary><b>Requirements &amp; platform support</b></summary>
+<summary><b>Hardware requirements &amp; platform support</b></summary>
 
-| Item | Detail |
-|---|---|
-| OS | macOS 14 (Sonoma) or newer |
-| Chip | Apple Silicon (M1–M4). **Intel Macs are not supported** — the bundled `ffmpeg` is arm64 and MPS requires Apple Silicon |
-| Python | Bundled CPython 3.12 (python-build-standalone). **No system Python needed** |
-| Disk | ~6 GB free (Python venv ≈4 GB + base models ≈1 GB) |
-| Network | Needed on first launch (PyPI, HuggingFace, UVR model repos) |
+| Item | Minimum | Recommended |
+|---|---|---|
+| OS | macOS 14 (Sonoma) / Windows 10 or 11 (64-bit) | Latest stable release |
+| Chip | Apple Silicon M1 / x64 CPU | M2, M3, M4 (Pro / Max train faster) |
+| Memory | 8 GB | 16 GB or more |
+| Disk | 6 GB free | 20 GB or more |
+| GPU | Not required | — |
+| Audio | Any microphone (training, live retune) | Headphones + dedicated mic (avoids feedback when live) |
+| Network | Required on first launch | Fully offline afterwards |
+
+- **Intel Macs are not supported**: the bundled `ffmpeg` is arm64 and PyTorch acceleration relies on Apple Silicon MPS.
+- **6 GB is just the start**: app + bundled Python runtime + base models. Training adds datasets, feature caches and batch weights — roughly 1–3 GB for 30 minutes of audio. Budget 20 GB+ for regular training.
+- **8 GB works but is slow**: training and BS-RoFormer vocal separation are the most memory-hungry steps; 8 GB machines swap heavily. 16 GB is the comfortable line.
+- **No discrete GPU needed**: macOS uses PyTorch MPS (unified memory); the Windows build runs on CPU by default, and you can swap in CUDA PyTorch if you have an NVIDIA card.
+- **Python is bundled**: CPython 3.12 ships with the app; no system Python required.
 
 | Platform | Status |
 |---|---|
 | macOS 14+ · Apple Silicon (M1–M4) | ✅ Supported — official DMG, PyTorch MPS acceleration |
-| Windows 10/11 · x64 | 🚧 Reserved — build/config/CI slots are prepared, runtime adaptation is pending |
+| Windows 10/11 · x64 | ✅ NSIS installer available — CPU inference by default |
 
 </details>
 
@@ -338,8 +360,8 @@ The `/live` page (mic → RVC → retune → accompaniment, plus the floating ly
 
 ## ⚠️ Known limitations
 
-- **Apple Silicon only** — no Windows / Linux build yet
-- The DMG is **unsigned and not notarized**, so Gatekeeper warns on first open
+- **macOS is Apple Silicon only** (no Intel Macs); Windows ships an x64 installer with CPU inference; no Linux build yet
+- The macOS DMG is **unsigned and not notarized**, so Gatekeeper warns on first open
 - Base models are **not committed to git** (size / licensing); they download on first launch
 - First-run setup needs network access to install Python packages and download models (no system Python needed)
 - New workspaces still start in the flat layout; the four-layer layout is opt-in via **设置 → 工作区布局**
@@ -357,10 +379,10 @@ The `/live` page (mic → RVC → retune → accompaniment, plus the floating ly
 - [x] Output library with star, finalize and a 7-day trash
 - [x] Per-voice training batches with archived weights
 - [ ] Stabilize real-time singing and the desktop lyrics window
-- [ ] Bundle a Python runtime so users don't need to install Python
-- [ ] One-click onboarding wizard for first-time users
+- [x] Bundle a Python runtime so users don't need to install Python
+- [x] One-click onboarding wizard for first-time users
 - [ ] Pre-trained voice gallery (download & sing)
-- [ ] Windows support
+- [x] Windows support (x64 installer, CPU inference by default)
 
 ---
 
@@ -374,7 +396,7 @@ Voxril is developed in the open and pull requests are genuinely welcome — incl
 | Suggest a feature | Open a **Feature request** and describe the problem before the solution |
 | Fix something small | [Good first issues](docs/contributor-tasks.md) — UI copy, i18n, docs, tests |
 | Change models or audio quality | Open an issue first; these changes are discussed before code |
-| Build a Windows port | Build config is already reserved, the runtime work is open |
+| Improve the Windows experience | The installer is available; feedback on CPU performance and device compatibility is welcome |
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) covers the dev setup, the pre-PR checks and the PR rules
 - UI-only changes can be developed in a browser: `pnpm -C web dev`, no models or Python venv needed

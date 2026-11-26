@@ -46,9 +46,8 @@ fn setup_onnxruntime_dylib() {
     }
     let site_pkg = PathBuf::from("Lib").join("site-packages").join("onnxruntime").join("capi").join("onnxruntime.dll");
     let mut candidates = Vec::new();
-    if let Some(data_dir) = dirs::data_dir() {
-        candidates.push(data_dir.join("com.rvc.webui").join("venv").join(&site_pkg));
-    }
+    // 数据目录可能跟随安装目录（<安装目录>/data），统一走 resolver 保证与 AppState 一致
+    candidates.push(crate::platform::resolve_data_dir().join("venv").join(&site_pkg));
     if let Ok(cwd) = std::env::current_dir() {
         candidates.push(cwd.join(".venv").join(&site_pkg));
         candidates.push(cwd.join("venv").join(&site_pkg));
@@ -167,7 +166,61 @@ async fn main() {
               }
 
              tokio::spawn(async move {
+                 // 数据目录迁移后：清理旧目录里属于本程序的条目。
+                 // 迁移当时旧目录仍被本进程使用（Windows 上 dll 会被占用），所以放到下次启动补删
+                 {
+                     let current = handle.state::<AppState>().data_dir.clone();
+                     let queue: Vec<PathBuf> = crate::platform::pending_cleanup_list()
+                         .into_iter()
+                         .filter(|old| !crate::platform::paths_equal(old, &current) && old.exists())
+                         .collect();
+                     if !queue.is_empty() {
+                         tokio::spawn(async move {
+                             let mut remaining: Vec<PathBuf> = Vec::new();
+                             for old in queue {
+                                 let probe = old.clone();
+                                 // failures == 0 即视为清理完成：目录本身还在，
+                                 // 说明只剩用户自己的文件，不该继续记在待清理列表里
+                                 let cleaned = tokio::task::spawn_blocking(move || crate::platform::purge_data_dir(&probe) == 0)
+                                     .await
+                                     .unwrap_or(false);
+                                 if !cleaned {
+                                     remaining.push(old);
+                                 }
+                             }
+                             let _ = crate::platform::save_pending_cleanup_list(&remaining);
+                         });
+                     }
+                 }
+
                  let setup_h = handle.clone();
+
+                 // 首启门控：全新安装时先等用户在引导里确认数据目录，
+                 // 再开始装环境和下模型，避免把数 GB 写到用户没点头的位置
+                 let gate_open = {
+                     let mut gate = handle.state::<AppState>().env_setup_gate.subscribe();
+                     loop {
+                         if *gate.borrow_and_update() {
+                             break true;
+                         }
+                         if gate.changed().await.is_err() {
+                             break false;
+                         }
+                     }
+                 };
+                 if !gate_open {
+                     return;
+                 }
+
+                 // 数据目录不可写时（如装进受保护目录），不安装环境、不下载模型，
+                 // 由界面引导用户另选目录，避免把数 GB 数据静默塞进系统盘
+                 let data_writable = {
+                     let state = handle.state::<AppState>();
+                     crate::platform::data_dir_writable(&state.data_dir)
+                 };
+                 if !data_writable {
+                     return;
+                 }
 
                  // 启动自动下载也要遵循用户在设置里选择的下载源
                  let (download_args, mut setup_args) = {
@@ -230,6 +283,12 @@ async fn main() {
             commands::update::check_update,
             commands::update::open_url,
             commands::env::get_env_status,
+            commands::env::get_data_dir_status,
+            commands::env::set_data_dir,
+            commands::env::confirm_data_dir,
+            commands::env::get_dir_free_space,
+            commands::env::migrate_data_dir,
+            commands::env::restart_app,
             commands::history::get_all_history,
             commands::history::add_history,
             commands::history::update_history,

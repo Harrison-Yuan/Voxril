@@ -36,6 +36,10 @@ pub struct AppState {
     /// 直播 AI 唱歌引擎的生命周期阶段
     pub live_singing_phase: Arc<RwLock<LivePhase>>,
     pub live_singing_stop: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    /// 首启门控：`true` 才允许安装 Python 环境与下载模型。
+    /// 全新安装时置 `false`，等用户在引导里确认数据目录后放行，
+    /// 避免把数 GB 数据写到用户没点头的位置。
+    pub env_setup_gate: tokio::sync::watch::Sender<bool>,
 }
 
 impl AppState {
@@ -193,9 +197,8 @@ impl AppState {
         let db = Database::new(&db_path).await?;
 
         // Find python
-        let data_dir = dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("com.rvc.webui");
+        // 数据目录：Windows 上优先跟随安装目录（<安装目录>/data），见 platform::resolve_data_dir
+        let data_dir = crate::platform::resolve_data_dir();
         let venv_python = crate::platform::venv_python_rel();
         let python_cmd = if project_root.join(".venv").join(venv_python).exists() {
             project_root.join(".venv").join(venv_python)
@@ -237,6 +240,14 @@ impl AppState {
             data_dir.clone(),
         ));
 
+        // 首启门控：以下任一成立就不用再问用户
+        // - 用户选过 / 迁移过数据目录（指针文件存在）
+        // - 目标目录里已有环境与模型（升级用户，绝不能重新下载）
+        // 开发环境同样会问一次：确认默认目录后即写入指针，之后不再打扰
+        let env_setup_ready = crate::platform::saved_data_dir().is_some()
+            || crate::platform::data_dir_has_payload(&data_dir);
+        let (env_setup_gate, _) = tokio::sync::watch::channel(env_setup_ready);
+
         Ok(Self {
             db,
             workspace_root: RwLock::new(workspace_root),
@@ -250,6 +261,7 @@ impl AppState {
             active_heavy_task: Arc::new(Mutex::new(None)),
             live_singing_phase: Arc::new(RwLock::new(LivePhase::Idle)),
             live_singing_stop: Mutex::new(None),
+            env_setup_gate,
         })
     }
 }

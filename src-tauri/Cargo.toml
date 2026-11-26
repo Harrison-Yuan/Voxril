@@ -1,6 +1,6 @@
 [package]
 name = "voxril"
-version = "0.3.0"
+version = "0.4.0"
 description = "Voxril - AI Voice Conversion & Training on macOS"
 authors = ["RVC Team"]
 license = "PolyForm-Noncommercial-1.0.0"
@@ -60,6 +60,8 @@ libc = "0.2"
 # （cn 网络无法访问 ort 的预编译下载 CDN，改用 Python 环境自带的 onnxruntime.dll）
 [target.'cfg(target_os = "windows")'.dependencies]
 ort = { version = "=2.0.0-rc.12", features = ["load-dynamic"] }
+# 读取卷剩余空间（数据目录首启确认）；版本沿用依赖树中已有的 windows-sys
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 ort = { version = "=2.0.0-rc.12", features = ["copy-dylibs"] }
