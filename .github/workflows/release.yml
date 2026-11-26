@@ -173,11 +173,12 @@ jobs:
           xcrun stapler staple "$DMG"
           xcrun stapler validate "$DMG"
 
+      # 分平台文件名：两个 job 往同一个 Release 传同名 SHA256SUMS.txt 会互相覆盖
       - name: Generate SHA-256 checksums
         run: |
           cd src-tauri/target/aarch64-apple-darwin/release/bundle/dmg
-          shasum -a 256 ./*.dmg > SHA256SUMS.txt
-          cat SHA256SUMS.txt
+          shasum -a 256 ./*.dmg > SHA256SUMS-macos.txt
+          cat SHA256SUMS-macos.txt
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
@@ -188,7 +189,7 @@ jobs:
           prerelease: false
           files: |
             src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
-            src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/SHA256SUMS.txt
+            src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/SHA256SUMS-macos.txt
           body: |
             ## 下载即用
 

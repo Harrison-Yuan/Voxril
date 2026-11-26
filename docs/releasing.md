@@ -1,20 +1,38 @@
 # 发版与桌面打包
 
-面向维护者。目标：**打一个 tag，GitHub 自动产出可直接下载安装的 DMG。**
+面向维护者。目标：**打一个 tag，GitHub 自动产出 macOS DMG 与 Windows 安装包。**
 
 ## 触发与产物
 
 | 方式 | 操作 |
 |---|---|
-| 打 tag（推荐） | `git tag v0.2.1 && git push origin v0.2.1`，同时推 GitHub 镜像 |
-| 重打旧 tag | Actions → **Release** → Run workflow → 填 tag（如 `v0.2.0`） |
+| 打 tag（推荐） | 先在 GitHub 镜像链上生成提交（见下节），再 `git tag -a` 并 `git push github <tag>` |
+| 重打旧 tag | Actions → **Release** / **Release Windows** → Run workflow → 填 tag；注意重打只会用 **tag 里的工作流**，事后改了工作流不会生效 |
 
-产物：
+产物（同一个 tag 由两个 job 各自上传）：
 
-- `Voxril_<version>_aarch64.dmg` —— 用户下载即用
-- `SHA256SUMS.txt` —— 校验文件
+- `Voxril_<version>_aarch64.dmg` + `SHA256SUMS-macos.txt`
+- `Voxril_<version>_x64-setup.exe` + `SHA256SUMS-windows.txt`
 
-版本号取自 tag（`v0.2.1` → `0.2.1`），不需要改 `tauri.conf.json` / `package.json`，CI 用 `--config` 覆盖。
+校验文件必须分平台命名：两个 job 往同一个 Release 传同名 `SHA256SUMS.txt` 会互相覆盖。
+
+## GitHub 只是单向镜像
+
+`origin` 是 Gitee（完整历史），`github` 是一条**独立且短得多**的镜像链，两边没有共同祖先，所以 `git push github main` 必被拒。做法是把本地提交的原树重新挂到镜像链上：
+
+```bash
+# 每个要镜像的本地提交执行一次，父提交指向镜像链当前尖端
+N1=$(git commit-tree $(git rev-parse <本地提交>^{tree}) -p github/main -m "<提交主题>")
+N2=$(git commit-tree $(git rev-parse <下一个本地提交>^{tree}) -p $N1 -m "<提交主题>")
+git push github $N2:refs/heads/main
+git tag -a v0.4.0 $N2 -m "Voxril v0.4.0"
+git push github v0.4.0          # 推 tag 即触发两个 Release 工作流
+```
+
+- 镜像提交只写主题行，不带正文；tag 只打在镜像提交上（Gitee 侧不打 tag）
+- CI 取的是 tag 那一棵树的源码与工作流，推完记得核对 `git rev-parse v0.4.0^{tree}` 与本地一致
+
+版本号取自 tag（`v0.4.0` → `0.4.0`），不需要改 `tauri.conf.json` / `package.json`，CI 用 `--config` 覆盖。
 本地的 `pnpm build` 仍然会走 `bump_version` + 依赖校验，两套流程互不影响。
 
 ## 流程做了什么

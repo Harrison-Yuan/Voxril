@@ -134,9 +134,9 @@ jobs:
               $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
               "$h  $($_.Name)"
           }
-          $lines | Set-Content -Path "SHA256SUMS.txt" -Encoding ascii
+          $lines | Set-Content -Path "SHA256SUMS-windows.txt" -Encoding ascii
           Pop-Location
-          Get-Content (Join-Path $dir "SHA256SUMS.txt")
+          Get-Content (Join-Path $dir "SHA256SUMS-windows.txt")
 
       # 与 macOS 正式 Release 合并到同一 tag：仅追加资产，不覆盖对方写好的正文。
       # allow_updates 让两个平台并行发布时能安全地各自上传自己的产物。
@@ -151,4 +151,4 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
-            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/SHA256SUMS.txt
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/SHA256SUMS-windows.txt
