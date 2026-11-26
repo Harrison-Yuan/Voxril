@@ -145,9 +145,21 @@ from the licensor in writing.
 
 ## Third-party components
 
-Parts of this project derive from RVC (Retrieval-based Voice
-Conversion WebUI) and other third-party libraries that are
-distributed under their own licenses (mainly MIT). Those parts
-remain under their original licenses and notices, which are
-collected in `MIT协议暨相关引用库协议`. Nothing in this license
-restricts rights you already have under those upstream licenses.
+This license covers Voxril's original code only. The following parts keep
+their upstream licenses:
+
+- Files derived from RVC (Retrieval-based Voice Conversion WebUI) are
+  licensed under the MIT License, reproduced in `LICENSE-RVC`:
+  `infer/lib/infer_pack/`, `infer/modules/vc/`, `infer/modules/train/`,
+  `infer/modules/onnx/`, `infer/lib/rmvpe.py`, `infer/lib/audio.py`.
+- `infer/lib/slicer2.py` derives from audio-slicer (MIT, Team OpenVPI).
+- Model weights downloaded at runtime follow the terms of their upstream
+  repositories.
+- The bundled FFmpeg binary is distributed under the LGPL v3; see
+  `licenses/LGPL-3.0.txt` and `licenses/GPL-3.0.txt`.
+
+Nothing in this license restricts rights you already have under those
+upstream licenses. See `THIRD_PARTY_NOTICES.md` for the full list.
+
+第三方组件与模型权重各自遵循上游许可证，完整清单见 `THIRD_PARTY_NOTICES.md`。
+本许可证仅覆盖 Voxril 原创代码；RVC 衍生部分仍为 MIT（见 `LICENSE-RVC`）。

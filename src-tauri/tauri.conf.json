@@ -24,6 +24,10 @@
       "../i18n",
       "../requirements.txt",
       "../requirements.lock",
+      "../LICENSE",
+      "../LICENSE-RVC",
+      "../THIRD_PARTY_NOTICES.md",
+      "../licenses",
       "bin/ffmpeg"
     ],
     "copyright": "PolyForm Noncommercial 1.0.0 — commercial use requires a separate license",

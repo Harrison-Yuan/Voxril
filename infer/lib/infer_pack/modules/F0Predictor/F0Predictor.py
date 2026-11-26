@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: MIT
+# Derived from RVC-Project/Retrieval-based-Voice-Conversion-WebUI
+# Copyright (c) 2023 liujing04, 源文雨, Ftps
+
 class F0Predictor(object):
     def compute_f0(self, wav, p_len):
         """

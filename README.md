@@ -386,7 +386,7 @@ Voxril is developed in the open and pull requests are genuinely welcome — incl
 - **UVR / BS-RoFormer** model repositories
 - **HuBERT / ContentVec**, **RMVPE**, **FCPE** model authors
 
-Upstream license notices are collected in [`MIT协议暨相关引用库协议`](MIT协议暨相关引用库协议).
+Upstream license notices are collected in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ---
 
@@ -396,7 +396,7 @@ Upstream license notices are collected in [`MIT协议暨相关引用库协议`](
 
 **Commercial use requires a written license.** Using Voxril in a commercial product or service, or building a business on it, needs a separate commercial license — get in touch via [GitHub](https://github.com/Harrison-Yuan) to talk about licensing or cooperation.
 
-RVC-derived parts keep their original MIT terms; see [`MIT协议暨相关引用库协议`](MIT协议暨相关引用库协议). Because of the noncommercial restriction, Voxril is **source-available**, not OSI-approved open source.
+RVC-derived parts keep their original MIT terms, reproduced in [`LICENSE-RVC`](LICENSE-RVC); the full third-party list is in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). The commercial license above covers Voxril's original code only — anyone may still use the MIT-licensed RVC-derived files commercially under MIT. Because of the noncommercial restriction on the original code, Voxril is **source-available**, not OSI-approved open source.
 
 ---
 

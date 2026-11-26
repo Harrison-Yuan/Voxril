@@ -386,7 +386,7 @@ Voxril 是公开开发的，非常欢迎 PR —— 小改动同样欢迎。
 - **UVR / BS-RoFormer** 模型仓库
 - **HuBERT / ContentVec**、**RMVPE**、**FCPE** 模型作者
 
-上游许可声明汇总在 [`MIT协议暨相关引用库协议`](MIT协议暨相关引用库协议)。
+上游许可声明汇总在 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
 
 ---
 
@@ -396,7 +396,7 @@ Voxril 是公开开发的，非常欢迎 PR —— 小改动同样欢迎。
 
 **商业使用需要书面授权。** 把 Voxril 用于商业产品或服务、或在其上开展业务，都需要单独取得商业授权 —— 可以通过 [GitHub](https://github.com/Harrison-Yuan) 联系作者沟通授权与合作。
 
-源自 RVC 的部分仍遵循其原始 MIT 许可，详见 [`MIT协议暨相关引用库协议`](MIT协议暨相关引用库协议)。由于存在非商业限制，Voxril 属于 **source-available**，而非 OSI 定义的开源项目。
+源自 RVC 的部分仍遵循其原始 MIT 许可，全文见 [`LICENSE-RVC`](LICENSE-RVC)；完整第三方清单见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。上面的商业授权只覆盖 Voxril 原创代码 —— RVC 衍生部分任何人仍可按 MIT 商用。由于原创代码存在非商业限制，Voxril 属于 **source-available**，而非 OSI 定义的开源项目。
 
 ---
 

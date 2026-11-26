@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: MIT
+# Derived from openvpi/audio-slicer
+# Copyright (c) 2022 Team OpenVPI
+
 import numpy as np
 
 
