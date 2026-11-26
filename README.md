@@ -103,11 +103,11 @@ Scroll down on the same page and expand **合成作品 (Merge)** → click **合
    xattr -dr com.apple.quarantine /Applications/Voxril.app
    ```
 
-3. The first launch sets everything up by itself — it installs its Python environment and downloads the models (~1 GB). Progress is shown in the app; **don't quit while it's running**. If downloads stall (common on networks where `huggingface.co` or PyPI is slow), open **设置 (Settings) → 模型与依赖下载源**: pick **国内镜像** for models and **清华镜像** for Python packages. Interrupted model downloads resume from the breakpoint when you retry.
+3. The first launch sets everything up by itself — it creates its bundled Python environment and downloads the models (~1 GB). Progress is shown in the app; **don't quit while it's running**. If downloads stall (common on networks where `huggingface.co` or PyPI is slow), open **设置 (Settings) → 模型与依赖下载源**: pick **国内镜像** for models and **清华镜像** for Python packages. Interrupted model downloads resume from the breakpoint when you retry.
 4. In **设置 (Settings)** pick a folder for your workspace (e.g. a new "Covers" folder on your Desktop), then restart the app.
 5. Open **模型管理 (Models)** — every row should be a green **已就绪**. Anything red needs a click on **下载**.
 
-**Before you start you need:** an Apple Silicon Mac (M1–M4) on macOS 14+, Python 3.10+ installed ([python.org](https://www.python.org/downloads/)), ~6 GB of free disk, and internet for that first setup.
+**Before you start you need:** an Apple Silicon Mac (M1–M4) on macOS 14+, ~6 GB of free disk, and internet for that first setup. Python is bundled — you don't need to install it.
 
 ---
 
@@ -156,9 +156,9 @@ Five words that appear everywhere in the app:
 
 | Question | Answer |
 |---|---|
-| Can I skip installing Python? | No — install Python 3.10+ first, then restart Voxril |
+| Do I need to install Python? | No — Voxril ships its own runtime. If first-time setup was interrupted, just restart the app |
 | macOS won't open the app | Use the Terminal line above, or right-click the icon → **Open** |
-| Model download stalls or fails | **设置 → 模型下载源** → **国内镜像**; downloads resume from where they stopped, and a failed source falls back to the next one |
+| Model download stalls or fails | **设置 → 模型与依赖下载源** → choose **国内镜像** for models; downloads resume from where they stopped, and a failed source falls back to the next one |
 | Python setup is slow or times out | **设置 → Python 依赖源** → **清华镜像** (or Aliyun), then restart Voxril |
 | How long does training take? | Depends on your data and Mac; it's long — start it before bed |
 | Can I stop halfway? | Training resumes from the last checkpoint; don't quit during the first model download |
@@ -264,7 +264,7 @@ song ──▶ vocal separation ─┬─▶ vocals ──▶ HuBERT + F0 ──
 |---|---|
 | OS | macOS 14 (Sonoma) or newer |
 | Chip | Apple Silicon (M1–M4). **Intel Macs are not supported** — the bundled `ffmpeg` is arm64 and MPS requires Apple Silicon |
-| Python | 3.10+ installed on the system. The app does **not** bundle a Python runtime |
+| Python | Bundled CPython 3.12 (python-build-standalone). **No system Python needed** |
 | Disk | ~6 GB free (Python venv ≈4 GB + base models ≈1 GB) |
 | Network | Needed on first launch (PyPI, HuggingFace, UVR model repos) |
 
@@ -301,11 +301,14 @@ song ──▶ vocal separation ─┬─▶ vocals ──▶ HuBERT + F0 ──
 <details>
 <summary><b>Development &amp; release</b></summary>
 
-Prerequisites: Rust toolchain, Node 20+, pnpm 10+, Python 3.10+.
+Prerequisites: Rust toolchain, Node 20+, pnpm 10+, Python 3.10+ (for development only — the packaged app bundles its own runtime).
 
 ```bash
 git clone https://github.com/Harrison-Yuan/Voxril.git
 cd Voxril
+
+# Bundled Python runtime (not committed; fetched once for packaging)
+bash tools/fetch_python_runtime.sh
 
 # Python side — `pnpm build` runs tools/verify_build_deps.py --quick against this venv
 python3 -m venv .venv && source .venv/bin/activate
@@ -338,7 +341,7 @@ The `/live` page (mic → RVC → retune → accompaniment, plus the floating ly
 - **Apple Silicon only** — no Windows / Linux build yet
 - The DMG is **unsigned and not notarized**, so Gatekeeper warns on first open
 - Base models are **not committed to git** (size / licensing); they download on first launch
-- First-run setup needs network access and an existing Python 3.10+ install
+- First-run setup needs network access to install Python packages and download models (no system Python needed)
 - New workspaces still start in the flat layout; the four-layer layout is opt-in via **设置 → 工作区布局**
 - **Live singing is experimental** and not recommended for production use
 
@@ -385,6 +388,7 @@ Voxril is developed in the open and pull requests are genuinely welcome — incl
 - **RVC — Retrieval-based Voice Conversion WebUI** (MIT): `infer/lib/infer_pack`, UVR5 separation code
 - **UVR / BS-RoFormer** model repositories
 - **HuBERT / ContentVec**, **RMVPE**, **FCPE** model authors
+- **python-build-standalone** (PSF-2.0): the bundled Python runtime
 
 Upstream license notices are collected in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 

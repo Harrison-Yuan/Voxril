@@ -17,6 +17,10 @@
       "../i18n",
       "../requirements.txt",
       "../requirements.lock",
+      "../LICENSE",
+      "../LICENSE-RVC",
+      "../THIRD_PARTY_NOTICES.md",
+      "../licenses",
       "bin/windows-x64"
     ],
     "shortDescription": "Voxril - Local AI Voice Cover Maker for Windows",

@@ -16,10 +16,12 @@ VERSION_REQUIRED = (3, 10)
 
 # ── pip 源：auto | official | tuna | aliyun | custom ─────────────────
 _parser = argparse.ArgumentParser(add_help=False)
+_parser.add_argument("--python", default="")
 _parser.add_argument("--pip-source", default="auto")
 _parser.add_argument("--pip-index", default="")
 _known, _unknown = _parser.parse_known_args()
 
+PYTHON_OVERRIDE = (_known.python or "").strip()
 PIP_SOURCE = (_known.pip_source or "auto").strip().lower()
 PIP_INDEX_OVERRIDE = (_known.pip_index or "").strip()
 
@@ -95,12 +97,15 @@ def venv_python_path(venv_path: Path) -> Path:
     return venv_path / "bin" / "python"
 
 
-def find_python():
+def find_python(explicit=None):
     """Find the best Python 3.10+ interpreter.
-    Priority (Windows): 3.12/3.11/3.10 install dirs → app venv → sys.executable.
-    Priority (macOS): Homebrew → existing venv → sys.executable.
+    Priority: explicit (bundled runtime) → current interpreter → platform installs → existing venv.
     """
     candidates = []
+    if explicit:
+        candidates.append(Path(explicit))
+    # 当前解释器优先：打包后即内置运行时，开发时可能是项目 .venv
+    candidates.append(Path(sys.executable))
     if platform.system() == "Windows":
         local = os.environ.get("LOCALAPPDATA")
         if local:
@@ -124,7 +129,6 @@ def find_python():
                 except Exception:
                     pass
         candidates.append(venv_python_path(get_app_data_dir() / "venv"))
-        candidates.append(Path(sys.executable))
     else:
         # Homebrew paths
         for ver in ["3.12", "3.11", "3.10"]:
@@ -132,8 +136,6 @@ def find_python():
                 candidates.append(Path(base) / f"python{ver}")
         # Existing app venv
         candidates.append(venv_python_path(get_app_data_dir() / "venv"))
-        # Current interpreter as fallback
-        candidates.append(Path(sys.executable))
 
     seen = set()
     for cand in candidates:
@@ -302,7 +304,7 @@ def main():
     emit(f"系统: {platform.system()} {platform.release()} ({platform.machine()})")
     emit("开始检查 Python 环境...")
 
-    python_bin = find_python()
+    python_bin = find_python(PYTHON_OVERRIDE)
     if python_bin is None:
         emit(f"未找到 Python {VERSION_REQUIRED[0]}.{VERSION_REQUIRED[1]}+，尝试安装...")
         if platform.system() == "Darwin":

@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm --prefix web run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "cd src-tauri && cargo run --bin bump_version && cd .. && npm --prefix web run build && python3 tools/verify_build_deps.py --quick",
+    "beforeBuildCommand": "cd src-tauri && cargo run --bin bump_version && cd .. && npm --prefix web run build && bash tools/fetch_python_runtime.sh && python3 tools/verify_build_deps.py --quick",
     "frontendDist": "../web/dist"
   },
   "bundle": {
@@ -28,6 +28,7 @@
       "../LICENSE-RVC",
       "../THIRD_PARTY_NOTICES.md",
       "../licenses",
+      "bin/python",
       "bin/ffmpeg"
     ],
     "copyright": "PolyForm Noncommercial 1.0.0 — commercial use requires a separate license",

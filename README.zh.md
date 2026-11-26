@@ -103,11 +103,11 @@ Voxril 启动后就停在 **一键翻唱** 页。点一个按钮，它会自动�
    xattr -dr com.apple.quarantine /Applications/Voxril.app
    ```
 
-3. 第一次打开它会自己装运行环境、下载模型（约 1 GB），进度会显示在界面里；**这段时间别关掉它**。如果下载卡住或失败（国内网络访问 `huggingface.co` 或 PyPI 经常如此），打开 **设置 → 模型与依赖下载源**：模型选 **国内镜像**，Python 依赖选 **清华镜像**；模型下载中断后再次下载会从断点继续。
+3. 第一次打开它会用内置 Python 运行时创建环境、下载模型（约 1 GB），进度会显示在界面里；**这段时间别关掉它**。如果下载卡住或失败（国内网络访问 `huggingface.co` 或 PyPI 经常如此），打开 **设置 → 模型与依赖下载源**：模型选 **国内镜像**，Python 依赖选 **清华镜像**；模型下载中断后再次下载会从断点继续。
 4. 打开 **设置**，选一个文件夹作为工作区（比如桌面上新建一个「翻唱」），然后重启应用。
 5. 打开 **模型管理**，每一行都显示绿色 **已就绪** 就说明准备好了；有红色的点 **下载**。
 
-**开始之前你需要：** Apple 芯片的 Mac（M1–M4）、macOS 14 以上、装好 Python 3.10+（[python.org 下载](https://www.python.org/downloads/)）、约 6 GB 空闲硬盘，以及首次配置时的网络。
+**开始之前你需要：** Apple 芯片的 Mac（M1–M4）、macOS 14 以上、约 6 GB 空闲硬盘，以及首次配置时的网络。Python 已内置，**不需要自己安装**。
 
 ---
 
@@ -156,9 +156,9 @@ Voxril 启动后就停在 **一键翻唱** 页。点一个按钮，它会自动�
 
 | 问题 | 答案 |
 |---|---|
-| 不装 Python 能直接用吗？ | 不能。先装 Python 3.10+，再重启 Voxril |
+| 不装 Python 能直接用吗？ | 不需要装 Python，应用已内置运行时；首次配置被中断的话，重启 Voxril 即可继续 |
 | 系统提示打不开 | 用上面那行终端命令，或右键图标选「打开」 |
-| 模型下载卡住 / 失败 | **设置 → 模型下载源** 选 **国内镜像**；中断后重试会从断点续传，某个源失败会自动换下一个 |
+| 模型下载卡住 / 失败 | **设置 → 模型与依赖下载源** → 模型侧选 **国内镜像**；中断后重试会从断点续传，某个源失败会自动换下一个 |
 | Python 环境装得慢 / 超时 | **设置 → Python 依赖源** 选 **清华镜像**（或阿里云），然后重启 Voxril |
 | 训练要多久？ | 看数据量和机器，时间很长，建议睡前开始 |
 | 中途能停吗？ | 训练可以停，下次从上次保存的进度继续；首次下载模型时别中途关 |
@@ -264,7 +264,7 @@ Voxril 启动后就停在 **一键翻唱** 页。点一个按钮，它会自动�
 |---|---|
 | 系统 | macOS 14 (Sonoma) 及以上 |
 | 芯片 | Apple Silicon（M1–M4）。**不支持 Intel Mac** —— 随包 ffmpeg 为 arm64，且 MPS 依赖 Apple Silicon |
-| Python | 系统内需自行安装 3.10+。应用**不内置** Python 运行时 |
+| Python | 已内置 CPython 3.12（python-build-standalone），**无需系统 Python** |
 | 磁盘 | 约 6 GB 可用空间（Python 虚拟环境约 4 GB + 基础模型约 1 GB） |
 | 网络 | 首次启动需要联网（PyPI、HuggingFace、UVR 模型仓库） |
 
@@ -301,11 +301,14 @@ Voxril 启动后就停在 **一键翻唱** 页。点一个按钮，它会自动�
 <details>
 <summary><b>开发与发版</b></summary>
 
-前置条件：Rust 工具链、Node 20+、pnpm 10+、Python 3.10+。
+前置条件：Rust 工具链、Node 20+、pnpm 10+、Python 3.10+（仅开发需要；打包后的应用自带运行时）。
 
 ```bash
 git clone https://github.com/Harrison-Yuan/Voxril.git
 cd Voxril
+
+# 内置 Python 运行时（不入库，打包前拉取一次）
+bash tools/fetch_python_runtime.sh
 
 # Python 侧 —— `pnpm build` 会用这个 .venv 跑 tools/verify_build_deps.py --quick
 python3 -m venv .venv && source .venv/bin/activate
@@ -338,7 +341,7 @@ pnpm build  # 先递增补丁版本号，再打包 .dmg
 - **仅支持 Apple Silicon**，暂无 Windows / Linux 版本
 - DMG **未签名、未公证**，首次打开会被 Gatekeeper 拦截
 - 基础模型**不随仓库分发**（体积与授权原因），首次启动时下载
-- 首次配置需要联网，且系统里要已有 Python 3.10+
+- 首次配置需要联网安装 Python 依赖并下载模型（无需系统 Python）
 - 新工作区仍默认使用平铺目录，四层布局需要在 **设置 → 工作区布局** 手动迁移
 - **实时翻唱为实验特性**，不建议用于正式场景
 
@@ -385,6 +388,7 @@ Voxril 是公开开发的，非常欢迎 PR —— 小改动同样欢迎。
 - **RVC — Retrieval-based Voice Conversion WebUI**（MIT）：`infer/lib/infer_pack`、UVR5 分离代码
 - **UVR / BS-RoFormer** 模型仓库
 - **HuBERT / ContentVec**、**RMVPE**、**FCPE** 模型作者
+- **python-build-standalone**（PSF-2.0）：内置 Python 运行时
 
 上游许可声明汇总在 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
 

@@ -82,3 +82,7 @@ dataset/
 # Misc
 /opt
 .tool-versions
+
+# Bundled Python runtime (tools/fetch_python_runtime.sh)
+src-tauri/bin/python/
+src-tauri/bin/windows-x64/python/

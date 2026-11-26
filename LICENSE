@@ -155,8 +155,8 @@ their upstream licenses:
 - `infer/lib/slicer2.py` derives from audio-slicer (MIT, Team OpenVPI).
 - Model weights downloaded at runtime follow the terms of their upstream
   repositories.
-- The bundled FFmpeg binary is distributed under the LGPL v3; see
-  `licenses/LGPL-3.0.txt` and `licenses/GPL-3.0.txt`.
+- The bundled FFmpeg and Python runtime are distributed under the licenses of
+  the builds we ship (LGPL/GPL and PSF-2.0); see `THIRD_PARTY_NOTICES.md`.
 
 Nothing in this license restricts rights you already have under those
 upstream licenses. See `THIRD_PARTY_NOTICES.md` for the full list.

@@ -204,6 +204,9 @@ impl AppState {
         } else if data_dir.join("venv").join(venv_python).exists() {
             // 首次启动由 tools/auto_setup_venv.py 创建的应用级虚拟环境
             data_dir.join("venv").join(venv_python)
+        } else if let Some(bundled) = crate::platform::find_bundled_python(Some(project_root.as_path())) {
+            // 随包分发的内置运行时，用户无需自装 Python
+            bundled
         } else {
             PathBuf::from(crate::platform::default_python_cmd())
         };

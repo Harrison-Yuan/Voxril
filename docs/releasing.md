@@ -68,10 +68,20 @@ spctl -a -vv /Applications/Voxril.app     # 应输出 accepted / Notarized Devel
 发版前在一台**没装过 Voxril** 的 Mac 上确认：
 
 - [ ] 双击 DMG → 拖入 Applications → 直接打开（已签名时不应有安全提示）
-- [ ] 首次启动能看到 Python 环境与模型下载进度，不闪退
+- [ ] 首次启动能看到内置运行时初始化、依赖安装与模型下载进度，不闪退（无需系统 Python）
 - [ ] 选择一个工作区后重启，路径仍然保留
 - [ ] 模型管理里依赖全部「已就绪」
 - [ ] 有一个可用音色时，「一键翻唱」选中歌曲后能跑完三阶段，成品出现在作品列表并能播放
+
+### 签名后的额外检查
+
+内置 Python 运行时位于 `Voxril.app/Contents/Resources/bin/python/`，其中包含 `python3` 可执行文件和大量 `.so` / `.dylib`。启用 Apple 签名后：
+
+- 确认这些 Mach-O 文件已随 App 一起签名，否则公证会失败
+- 如 Tauri 未自动签名资源目录，在打包后对整个 App 执行一次 `codesign --deep --force --sign "$APPLE_SIGNING_IDENTITY" Voxril.app`，再提交公证
+- 公证实测通过后，把这步写进 `release.yml` 的签名分支
+
+运行时由 `tools/fetch_python_runtime.sh` 在构建前拉取（不入库），版本在脚本顶部的 `PB_TAG` / `PY_VERSION` 固定；升级时同步修改并回归冷启动。
 
 ## 常见失败
 

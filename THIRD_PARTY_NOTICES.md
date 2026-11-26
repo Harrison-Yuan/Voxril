@@ -66,9 +66,11 @@ SOFTWARE.
 
 | 二进制 | 版本 | 许可证 | 说明 |
 |---|---|---|---|
-| FFmpeg（macOS arm64） | `git-2026-06-10-5f998e3` | LGPL v3（当前随包构建） | 源码：<https://github.com/FFmpeg/FFmpeg>；构建参考：<https://github.com/BtbN/FFmpeg-Builds>；许可证全文见 `licenses/LGPL-3.0.txt` 与 `licenses/GPL-3.0.txt` |
+| Python 3.12 runtime（python-build-standalone） | `3.12.16+20261124` | PSF-2.0 | 构建时由 `tools/fetch_python_runtime.sh` 拉取，随包分发到 `bin/python`（Windows 为 `bin/windows-x64/python`） |
+| FFmpeg（macOS arm64） | `git-2026-06-10-5f998e3` | 以实际构建为准（LGPL 或 GPL） | 源码：<https://github.com/FFmpeg/FFmpeg>；许可证全文见 `licenses/LGPL-3.0.txt` 与 `licenses/GPL-3.0.txt` |
+| FFmpeg（Windows x64） | 构建时从 BtbN 获取 | GPL v3（`win64-gpl` 变体） | 构建来源：<https://github.com/BtbN/FFmpeg-Builds>；许可证全文见 `licenses/GPL-3.0.txt` |
 
-FFmpeg 以独立可执行文件随包分发（应用通过子进程调用），未做静态链接或修改。若后续替换 ffmpeg 二进制或改变构建配置（例如启用 GPL 组件），请同步更新本节并重新确认合规义务。
+FFmpeg 与内置 Python 均以独立文件随包分发（应用通过子进程调用），未修改其源码。若替换二进制或改变 ffmpeg 构建配置（例如从 GPL 换成 LGPL），请同步更新本节并重新确认合规义务。
 
 ---
 

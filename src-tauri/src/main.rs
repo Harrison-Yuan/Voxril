@@ -170,11 +170,14 @@ async fn main() {
                  let setup_h = handle.clone();
 
                  // 启动自动下载也要遵循用户在设置里选择的下载源
-                 let (download_args, pip_args) = {
+                 let (download_args, mut setup_args) = {
                      let state = handle.state::<AppState>();
                      let settings = crate::download_settings::DownloadSettings::load(&state.db).await;
                      (settings.cli_args(), settings.pip_cli_args())
                  };
+                 // 让安装脚本复用当前解释器（优先内置 Python），不再依赖系统 Python
+                 setup_args.insert(0, executor.python_cmd().to_string());
+                 setup_args.insert(0, "--python".to_string());
 
                  // ═══════════════════════════════════════════════
                  //  启动时自动清理垃圾数据
@@ -191,7 +194,7 @@ async fn main() {
                      }
                  }
                  let _ = executor
-                     .run_script_streaming("tools/auto_setup_venv.py", pip_args, move |line| {
+                     .run_script_streaming("tools/auto_setup_venv.py", setup_args, move |line| {
                          if line.starts_with("[SETUP]") {
                              let _ = setup_h.emit("setup-log", &line);
                          }

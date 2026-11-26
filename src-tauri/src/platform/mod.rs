@@ -42,6 +42,60 @@ pub fn venv_python_rel() -> &'static str {
     }
 }
 
+/// 内置 Python 运行时相对 `bin/` 的路径
+pub fn bundled_python_rel() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "python/python.exe"
+    } else {
+        "python/bin/python3"
+    }
+}
+
+/// 内置 Python 运行时候选路径（随包分发的 python-build-standalone）
+pub fn bundled_python_candidates(project_root: Option<&Path>) -> Vec<PathBuf> {
+    let rel = bundled_python_rel();
+    let mut paths = Vec::new();
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            if let Some(bin_dir) = platform_bin_dir() {
+                paths.push(dir.join("bin").join(bin_dir).join(rel));
+            }
+            paths.push(dir.join("bin").join(rel));
+            if let Some(res) = dir.parent().map(|p| p.join("Resources")) {
+                if let Some(bin_dir) = platform_bin_dir() {
+                    paths.push(res.join("bin").join(bin_dir).join(rel));
+                }
+                paths.push(res.join("bin").join(rel));
+                if let Some(res_bin_dir) = platform_bin_dir() {
+                    paths.push(res.join("_up_").join("bin").join(res_bin_dir).join(rel));
+                }
+                paths.push(res.join("_up_").join("bin").join(rel));
+            }
+        }
+    }
+
+    if let Some(root) = project_root {
+        if let Some(bin_dir) = platform_bin_dir() {
+            paths.push(root.join("src-tauri").join("bin").join(bin_dir).join(rel));
+        }
+        paths.push(root.join("src-tauri").join("bin").join(rel));
+        if let Some(bin_dir) = platform_bin_dir() {
+            paths.push(root.join("bin").join(bin_dir).join(rel));
+        }
+        paths.push(root.join("bin").join(rel));
+    }
+
+    paths
+}
+
+/// 查找内置 Python 运行时
+pub fn find_bundled_python(project_root: Option<&Path>) -> Option<PathBuf> {
+    bundled_python_candidates(project_root)
+        .into_iter()
+        .find(|p| p.exists())
+}
+
 /// 找不到 venv 时使用的 Python 命令
 pub fn default_python_cmd() -> &'static str {
     if cfg!(target_os = "windows") {

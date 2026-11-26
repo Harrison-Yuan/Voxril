@@ -43,6 +43,9 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
+      - name: Fetch bundled Python runtime
+        run: bash tools/fetch_python_runtime.sh
+
       - name: Resolve version from tag
         id: version
         run: echo "value=${TAG#v}" >> "$GITHUB_OUTPUT"

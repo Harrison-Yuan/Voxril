@@ -77,6 +77,11 @@ fn find_venv_python(project_root: &PathBuf, data_dir: &PathBuf) -> Option<PathBu
         data_dir.join("venv").join(venv_python),
     ];
 
+    // 随包分发的内置 Python（用户无需自行安装 Python）
+    if let Some(bundled) = crate::platform::find_bundled_python(Some(project_root.as_path())) {
+        candidates.push(bundled);
+    }
+
     // 系统 Python（macOS: Homebrew；Windows: 预留 PATH 查找）
     for p in crate::platform::system_python_candidates() {
         if p.exists() {
@@ -154,7 +159,6 @@ impl PythonExecutor {
         self.venv_path.is_some()
     }
 
-    #[allow(dead_code)]
     pub fn python_cmd(&self) -> &str {
         &self.python_cmd
     }
