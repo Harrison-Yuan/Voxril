@@ -15,10 +15,12 @@ import {
   SwapOutlined,
 } from '@ant-design/icons'
 import { invoke } from '@tauri-apps/api/core'
+import { getVersion } from '@tauri-apps/api/app'
 import { workspaceApi } from '@/api/database'
 import { downloadApi } from '@/api/download'
 import type { DownloadSettings, DownloadSource, PipSource } from '@/api/download'
 import { updateApi } from '@/api/update'
+import { useUpdaterStore } from '@/store/updaterStore'
 import { envApi } from '@/api/env'
 import type { DataDirStatus } from '@/api/env'
 import { GUIDE_URLS, RELEASES_URL } from '@/lib/links'
@@ -138,6 +140,9 @@ export default function SettingsPage() {
     loadWorkspace()
     loadDownloadSettings()
     loadDataDir()
+    getVersion()
+      .then(setCurrentVersion)
+      .catch(() => {})
   }, [])
 
   const handleSaveDownload = async () => {
@@ -155,21 +160,12 @@ export default function SettingsPage() {
   const handleCheckUpdate = async () => {
     setCheckingUpdate(true)
     try {
-      const info = await updateApi.check()
-      setCurrentVersion(info.current)
-      if (!info.has_update) {
-        message.success(t('update.up_to_date').replace('{version}', info.current))
-        return
+      // 走应用内更新：发现新版本会在标题栏弹出下载 / 安装面板
+      await useUpdaterStore.getState().check(true)
+      const updater = useUpdaterStore.getState()
+      if (updater.phase === 'uptodate') {
+        message.success(t('update.up_to_date') + (currentVersion ? ` · v${currentVersion}` : ''))
       }
-      Modal.confirm({
-        title: t('update.dialog_title').replace('{version}', info.latest),
-        content: t('update.dialog_desc'),
-        okText: t('update.download'),
-        cancelText: t('common.cancel'),
-        onOk: () => updateApi.open(info.url),
-      })
-    } catch {
-      message.error(t('update.failed'))
     } finally {
       setCheckingUpdate(false)
     }

@@ -1,6 +1,5 @@
 import { Layout } from 'antd'
 import TitleBar from './TitleBar'
-import UpdateBanner from './UpdateBanner'
 import OnboardingBanner from './OnboardingBanner'
 import DataDirGuard from './DataDirGuard'
 import DataDirSetup from './DataDirSetup'
@@ -26,7 +25,6 @@ export default function AppLayout({ children }: Props) {
           width: '100%',
         }}
       >
-        <UpdateBanner />
         <OnboardingBanner />
         {children}
       </Content>

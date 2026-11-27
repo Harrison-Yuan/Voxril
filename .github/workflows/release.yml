@@ -37,6 +37,11 @@ jobs:
       NOTARY_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
       NOTARY_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
+      # 应用内更新：私钥用于给更新包签名，客户端用内置公钥校验。
+      # 未配置时构建照常进行，只是不产出更新包（见 Prepare CI config）。
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,11 +56,18 @@ jobs:
         run: echo "value=${TAG#v}" >> "$GITHUB_OUTPUT"
 
       # 生成一份 CI 专用配置：版本号取 tag，且跳过本地的 beforeBuildCommand
-      # （CI 里没有 .venv，bump_version 与依赖校验只适用于本地打包）
+      # （CI 里没有 .venv，bump_version 与依赖校验只适用于本地打包）。
+      # 配置了签名私钥才开启 createUpdaterArtifacts，否则构建会因缺少私钥失败。
       - name: Prepare CI config
         run: |
-          printf '{"version":"%s","build":{"beforeBuildCommand":""}}' \
-            "${{ steps.version.outputs.value }}" > "$RUNNER_TEMP/tauri.ci.conf.json"
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            printf '{"version":"%s","build":{"beforeBuildCommand":""},"bundle":{"createUpdaterArtifacts":true}}' \
+              "${{ steps.version.outputs.value }}" > "$RUNNER_TEMP/tauri.ci.conf.json"
+          else
+            printf '{"version":"%s","build":{"beforeBuildCommand":""}}' \
+              "${{ steps.version.outputs.value }}" > "$RUNNER_TEMP/tauri.ci.conf.json"
+            echo "::warning title=updater::未配置 TAURI_SIGNING_PRIVATE_KEY，本次不产出应用内更新包"
+          fi
           cat "$RUNNER_TEMP/tauri.ci.conf.json"
 
       - name: Setup pnpm
@@ -244,3 +256,30 @@ jobs:
             macOS uses PyTorch MPS; the Windows build runs on CPU by default.
 
             Unsigned macOS builds need `xattr -dr com.apple.quarantine /Applications/Voxril.app`.
+
+      # 应用内更新的产物与平台清单。两个平台各发一份 latest-<target>.json：
+      # macOS 与 Windows 是两个独立 workflow，无法用 needs 汇总成单文件，
+      # 而 Tauri 支持 endpoint 里的 {{target}} 占位，各发各的才不会互相覆盖。
+      #
+      # 更新包不放进上面的 Publish release：那里 fail_on_unmatched_files 默认为 true，
+      # 未配置签名密钥时 glob 无匹配会直接把发布步骤打挂，与「构建照常」的约定矛盾。
+      - name: Publish updater artifacts
+        if: env.TAURI_SIGNING_PRIVATE_KEY != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          DIR="src-tauri/target/aarch64-apple-darwin/release/bundle/macos"
+          SIG=$(ls "$DIR"/*.app.tar.gz.sig | head -1)
+          PKG="${SIG%.sig}"
+          MANIFEST="$RUNNER_TEMP/latest-darwin-aarch64.json"
+          jq -n \
+            --arg version "${TAG#v}" \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg sig "$(cat "$SIG")" \
+            --arg url "https://github.com/Harrison-Yuan/Voxril/releases/download/${TAG}/$(basename "$PKG")" \
+            '{version: $version, pub_date: $date,
+              platforms: {"darwin-aarch64": {signature: $sig, url: $url}}}' \
+            > "$MANIFEST"
+          cat "$MANIFEST"
+          gh release upload "$TAG" "$PKG" "$SIG" "$MANIFEST" --clobber

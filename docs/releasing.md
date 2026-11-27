@@ -13,8 +13,46 @@
 
 - `Voxril_<version>_aarch64.dmg` + `SHA256SUMS-macos.txt`
 - `Voxril_<version>_x64-setup.exe` + `SHA256SUMS-windows.txt`
+- 应用内更新（配置了签名密钥才有）：
+  - macOS `Voxril.app.tar.gz` + `.sig` + `latest-darwin-aarch64.json`
+  - Windows `*-setup.exe.sig` + `latest-windows-x86_64.json`
 
 校验文件必须分平台命名：两个 job 往同一个 Release 传同名 `SHA256SUMS.txt` 会互相覆盖。
+更新清单同理——两个平台是两个独立 workflow，无法汇总成单个 `latest.json`，
+所以用 Tauri 的 `{{target}}` 占位各发一份：客户端请求 `latest-darwin-aarch64.json` /
+`latest-windows-x86_64.json`，互不覆盖。
+
+## 应用内更新的签名密钥
+
+客户端用 `tauri.conf.json` 里 `plugins.updater.pubkey` 校验更新包，私钥只在 CI 使用：
+
+| 位置 | 内容 |
+|---|---|
+| 仓库 `src-tauri/tauri.conf.json` | 公钥（可公开） |
+| GitHub Secrets `TAURI_SIGNING_PRIVATE_KEY` | 私钥全文 |
+| GitHub Secrets `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | 私钥密码 |
+
+- 首次配置：`tauri signer generate -w <path>` 生成密钥对，公钥填进配置，私钥与密码写进 Secrets
+- **私钥或密码丢失就无法再发布可用的更新包**，只能换新密钥并让用户手动装一次新版本
+- 未配置 Secrets 时构建照常，只是不产出更新产物（`createUpdaterArtifacts` 由 CI 按需开启）
+- 本地打包默认不生成更新产物，避免要求每个开发者都持有私钥
+
+### 三个容易踩的前提
+
+- **旧版本升不上来**：endpoint、公钥、updater 插件都编译在客户端里。v0.4.0 及更早的
+  安装没有这些，收不到应用内更新，只能手动装一次新版本；此后才能一路自动升级
+- **别发 prerelease**：endpoint 用的是 `releases/latest/download/`，GitHub 的 `latest`
+  会跳过草稿与预发布，发成 prerelease 等于对所有用户隐藏了这个版本
+- **只有 Apple Silicon 清单**：`latest-darwin-aarch64.json` 对应 `darwin-aarch64`，
+  Intel Mac 请求 `latest-darwin-x86_64.json` 必然 404（本来也不支持 Intel，行为一致）
+
+## 发布后的自检
+
+```bash
+gh release download <tag> -p "latest-*.json" -D /tmp/chk && cat /tmp/chk/latest-*.json
+```
+
+清单里的 `version` 必须等于 tag、`platforms` 只含本平台、`url` 指向本 Release 的资产。
 
 ## GitHub 只是单向镜像
 
@@ -113,6 +151,7 @@ spctl -a -vv /Applications/Voxril.app     # 应输出 accepted / Notarized Devel
 
 ## 后续可选项
 
-- **自动更新**：需要接入 `@tauri-apps/plugin-updater` + 签名密钥（`TAURI_SIGNING_PRIVATE_KEY`），并在 Release 提供 `latest.json`
+- **应用内更新**：已接入 `@tauri-apps/plugin-updater`。标题栏的下载图标检测到新版本后，
+  由用户确认下载（签名校验），下载完成再提示重启安装。密钥与清单见上文「应用内更新的签名密钥」
 - **Windows**：`release-windows.yml` 已启用，推 `v*` tag 会与 macOS 一起上传 `x64-setup.exe`；安装器行为（安装模式、界面语言）在 `src-tauri/tauri.windows.conf.json` 的 `bundle.windows.nsis` 里配置。首次启动会先让用户确认数据目录（默认 `<安装目录>/data`，弹窗显示该卷剩余空间），确认前不会安装环境或下载模型；目录不可写时同样由弹窗引导另选（指针存在 `%LOCALAPPDATA%\com.voxril\data-dir.txt`），不会静默回退系统盘。卸载不删数据目录
 - **通用二进制**：Intel 版本已放弃，暂无计划

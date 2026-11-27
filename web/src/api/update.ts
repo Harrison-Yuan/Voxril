@@ -11,7 +11,12 @@ export interface UpdateInfo {
 }
 
 export const updateApi = {
-  /** 读取 GitHub 最新 Release 并与当前版本比较；失败时抛错（由调用方静默处理）。 */
+  /**
+   * 读取 GitHub 最新 Release 并与当前版本比较；失败时抛错（由调用方静默处理）。
+   *
+   * 界面里的「检查更新 / 下载 / 安装」走 `@/store/updaterStore`（真正的应用内更新）。
+   * 这里保留是给 endpoint 不可达时做兜底查询用。
+   */
   async check(): Promise<UpdateInfo> {
     return invoke<UpdateInfo>('check_update')
   },

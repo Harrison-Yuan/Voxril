@@ -25,6 +25,9 @@ jobs:
     timeout-minutes: 90
     env:
       TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      # 应用内更新签名；未配置时构建照常，只是不产出更新包
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
     steps:
       - name: Checkout
@@ -93,11 +96,18 @@ jobs:
         run: pnpm -C web run build
 
       # 生成 CI 专用配置：版本号取 tag，并跳过本地 beforeBuildCommand。
+      # 配置了签名私钥才开启 createUpdaterArtifacts，否则构建会因缺少私钥失败。
       - name: Prepare CI config
         shell: bash
         run: |
-          printf '{"version":"%s","build":{"beforeBuildCommand":""}}' \
-            "${{ steps.version.outputs.value }}" > "$RUNNER_TEMP/tauri.ci.conf.json"
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            printf '{"version":"%s","build":{"beforeBuildCommand":""},"bundle":{"createUpdaterArtifacts":true}}' \
+              "${{ steps.version.outputs.value }}" > "$RUNNER_TEMP/tauri.ci.conf.json"
+          else
+            printf '{"version":"%s","build":{"beforeBuildCommand":""}}' \
+              "${{ steps.version.outputs.value }}" > "$RUNNER_TEMP/tauri.ci.conf.json"
+            echo "::warning title=updater::未配置 TAURI_SIGNING_PRIVATE_KEY，本次不产出应用内更新包"
+          fi
           cat "$RUNNER_TEMP/tauri.ci.conf.json"
 
       # 失败时把日志尾部写进 Job Summary，并把第一条错误作为注解暴露出来。
@@ -152,3 +162,28 @@ jobs:
           files: |
             src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
             src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/SHA256SUMS-windows.txt
+
+      # 应用内更新：签名文件 + 平台清单（清单名与 endpoint 的 {{target}} 对应）。
+      # 与 macOS 一样不写进 Publish release asset 的 files，
+      # 以免未配置签名密钥时 fail_on_unmatched_files 直接把发布步骤打挂。
+      - name: Publish updater artifacts
+        if: env.TAURI_SIGNING_PRIVATE_KEY != ''
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          DIR="src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis"
+          SIG=$(ls "$DIR"/*.exe.sig | head -1)
+          PKG=$(basename "${SIG%.sig}")
+          MANIFEST="$RUNNER_TEMP/latest-windows-x86_64.json"
+          jq -n \
+            --arg version "${TAG#v}" \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg sig "$(cat "$SIG")" \
+            --arg url "https://github.com/Harrison-Yuan/Voxril/releases/download/${TAG}/${PKG}" \
+            '{version: $version, pub_date: $date,
+              platforms: {"windows-x86_64": {signature: $sig, url: $url}}}' \
+            > "$MANIFEST"
+          cat "$MANIFEST"
+          gh release upload "$TAG" "$SIG" "$MANIFEST" --clobber
