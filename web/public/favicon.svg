@@ -1,11 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- 由 tools/gen_icon.py 生成，与打包图标同源，请勿手改 -->
   <defs>
     <linearGradient id="vox-g" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#7C3AED"/>
+      <stop offset="0.00" stop-color="#7C3AED"/>
       <stop offset="0.55" stop-color="#6366F1"/>
-      <stop offset="1" stop-color="#22D3EE"/>
+      <stop offset="1.00" stop-color="#22D3EE"/>
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="14.4" fill="url(#vox-g)"/>
-  <path d="M17.5 18.5 L32 45.5 L46.5 18.5" stroke="#FFFFFF" stroke-width="6.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect width="64" height="64" rx="14.43" fill="url(#vox-g)"/>
+  <path d="M15.68 18.88 L32.00 47.04 L48.32 18.88" stroke="#FFFFFF" stroke-width="5.63" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
