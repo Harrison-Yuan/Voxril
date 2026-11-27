@@ -64,7 +64,7 @@ export default function UpdateButton() {
             </Text>
           ) : null}
           <Button size="small" onClick={() => void check(true)}>
-            {t('update.retry')}
+            {t('update.check')}
           </Button>
         </Space>
       )}
