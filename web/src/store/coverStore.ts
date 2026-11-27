@@ -3,6 +3,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { coverApi } from '../api/cover'
 import type { CoverProgress, CoverRequest, CoverResponse } from '../api/cover'
+import { t } from '@/i18n/runtime'
 
 export type CoverStage = 'idle' | 'separate' | 'convert' | 'merge' | 'done'
 
@@ -70,7 +71,7 @@ export const useCoverStore = create<CoverState>((set, get) => ({
       if (result.ok && result.mixed_path) {
         set({ result, stage: 'done', percent: 100 })
       } else {
-        set({ error: result.message || '翻唱生成失败' })
+        set({ error: result.message || t('shell.cover_failed') })
       }
     } catch (e) {
       if (get()._eventId === eventId) set({ error: String(e) })

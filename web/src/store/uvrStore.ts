@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import type { SeparateRequest, SeparateResponse } from '../api/uvr'
+import { t } from '@/i18n/runtime'
 
 export interface UvrResult {
   ok: boolean
@@ -86,7 +87,7 @@ export const useUvrStore = create<UvrState>((set, get) => ({
 
       const result = await invoke<SeparateResponse>('separate_vocals_streaming', { request, eventId })
       set(s => ({
-        log: s.log + '\n' + (result.message || '完成'),
+        log: s.log + '\n' + (result.message || t('common.done')),
         result: {
           ok: result.ok,
           message: result.message,
@@ -97,7 +98,7 @@ export const useUvrStore = create<UvrState>((set, get) => ({
         },
       }))
     } catch (error) {
-      set(s => ({ log: s.log + `\n失败：${String(error)}` }))
+      set(s => ({ log: s.log + `\n${t('shell.failed_detail', { err: String(error) })}` }))
     } finally {
       set({ loading: false })
     }

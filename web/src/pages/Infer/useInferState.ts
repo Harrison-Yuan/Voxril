@@ -5,6 +5,7 @@ import { inferApi } from '../../api/infer'
 import { workspaceApi } from '../../api/workspace'
 import { useUvrStore } from '../../store/uvrStore'
 import { useInferStore } from '../../store/inferStore'
+import { t } from '@/i18n/runtime'
 
 export const DEFAULT_PARAMS = {
   modelName: '', transpose: 0, f0Method: 'rmvpe',
@@ -76,20 +77,20 @@ export function useInferState() {
 
   const selectSource = async () => {
     try {
-      const sel = await pickAudio('选择要转换的人声音频')
+      const sel = await pickAudio(t('infer.pick_source_vocal'))
       if (sel) {
         setSourcePath(sel)
         setSourceName(sel.split('/').pop() || sel)
         useInferStore.getState().setSourcePath(sel)
       }
-    } catch (e) { message.error(`选择音频失败：${String(e)}`) }
+    } catch (e) { message.error(t('infer.select_audio_failed', { detail: String(e) })) }
   }
 
   const selectMerge = async (field: 'vocalPath' | 'instrumentalPath', title: string) => {
     try {
       const sel = await pickAudio(title)
       if (sel) mergeForm.setFieldValue(field, sel)
-    } catch (e) { message.error(`选择音频失败：${String(e)}`) }
+    } catch (e) { message.error(t('infer.select_audio_failed', { detail: String(e) })) }
   }
 
   const autoDetectInstrumental = () => {
@@ -111,23 +112,23 @@ export function useInferState() {
   }
 
   const quickInstrumental = async () => {
-    if (!workspaceRoot) { message.warning('请先配置工作目录'); return }
+    if (!workspaceRoot) { message.warning(t('infer.workspace_required')); return }
     try {
       const res = await inferApi.listDatasetAudio('instrumental')
-      if (!res.files?.length) { message.warning('工作目录中未找到伴奏文件'); return }
+      if (!res.files?.length) { message.warning(t('infer.no_instrumental_found')); return }
       if (res.files.length === 1) {
         mergeForm.setFieldValue('instrumentalPath', res.files[0].path)
-        message.success(`已选择：${res.files[0].name}`)
+        message.success(t('infer.selected', { name: res.files[0].name }))
       } else {
         setInstrumentalFiles(res.files)
       }
-    } catch (e) { message.error(`加载伴奏文件列表失败：${String(e)}`) }
+    } catch (e) { message.error(t('infer.load_instrumentals_failed', { detail: String(e) })) }
   }
 
   const handleConvert = async () => {
     const p = form.getFieldsValue()
-    if (!p.modelName) { message.warning('请先选择模型'); return }
-    if (!sourcePath) { message.warning('请先上传音频文件'); return }
+    if (!p.modelName) { message.warning(t('infer.model_required')); return }
+    if (!sourcePath) { message.warning(t('infer.source_required')); return }
     const result = await storeStartConvert({
       model_name: String(p.modelName || ''), source_path: sourcePath,
       transpose: toNum(p.transpose, 0), f0_method: String(p.f0Method || 'rmvpe'),
@@ -138,22 +139,22 @@ export function useInferState() {
     if (result.ok && result.output_path) {
       mergeForm.setFieldValue('vocalPath', result.output_path)
       autoDetectInstrumental()
-      message.success('转换完成')
+      message.success(t('infer.done'))
     } else if (!result.ok) {
-      message.error(result.message || '转换失败')
+      message.error(result.message || t('infer.failed'))
     }
   }
 
   const handleMerge = async () => {
     const v = mergeForm.getFieldsValue()
-    if (!v.vocalPath) { message.warning('请先选择新的人声音频'); return }
-    if (!v.instrumentalPath) { message.warning('请选择伴奏文件'); return }
+    if (!v.vocalPath) { message.warning(t('infer.vocal_required')); return }
+    if (!v.instrumentalPath) { message.warning(t('infer.accompaniment_required')); return }
     setMergeLoading(true); setMergeOutputPath('')
     try {
       const result = await inferApi.mergeAudio(String(v.vocalPath), String(v.instrumentalPath), v.vocalGain ?? 6)
-      if (result.ok && result.output_path) { setMergeOutputPath(result.output_path); message.success('新人声已与原伴奏合成，作品已生成') }
-      else { message.error(result.message || '合成失败') }
-    } catch (e) { message.error(`合成失败：${String(e)}`) }
+      if (result.ok && result.output_path) { setMergeOutputPath(result.output_path); message.success(t('infer.merge_success')) }
+      else { message.error(result.message || t('infer.merge_failed')) }
+    } catch (e) { message.error(t('infer.merge_failed_detail', { detail: String(e) })) }
     finally { setMergeLoading(false) }
   }
 

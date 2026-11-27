@@ -3,6 +3,7 @@ import { SoundOutlined, ApartmentOutlined } from '@ant-design/icons'
 import type { WorkflowStage } from '@/store/trainStore'
 import type { RunUsage } from '../services/trainApi'
 import { formatBytes } from '@/lib/formatBytes'
+import { useI18n } from '@/i18n'
 
 const { Text } = Typography
 
@@ -20,13 +21,14 @@ interface FeatureExtractionStepsProps {
   onExtractAudio: () => void
 }
 
-const statusTextMap: Record<WorkflowStage, string> = {
-  pending: '未开始',
-  running: '进行中',
-  done: '已完成',
-  error: '失败',
-  stale: '需重跑',
-  reclaimed: '已回收',
+/** 阶段状态 → 文案键，渲染时再经 t() 取词，切换语言才会刷新 */
+const statusTextKeyMap: Record<WorkflowStage, string> = {
+  pending: 'common.pending',
+  running: 'common.running',
+  done: 'common.done',
+  error: 'common.failed',
+  stale: 'trainStep.status_stale',
+  reclaimed: 'trainStep.status_reclaimed',
 }
 
 const statusColorMap: Record<WorkflowStage, string> = {
@@ -51,6 +53,7 @@ export const FeatureExtractionSteps = ({
   onExtractF0,
   onExtractAudio,
 }: FeatureExtractionStepsProps) => {
+  const { t } = useI18n()
   const preprocessDone = preprocessStatus === 'done'
   const f0Done = !ifF0 || f0Status === 'done'
   const f0DoneText = f0Status === 'done' || f0Status === 'reclaimed'
@@ -60,109 +63,91 @@ export const FeatureExtractionSteps = ({
     <Card
       title={
         <Space>
-          <Text>步骤 2：特征提取</Text>
-          {preprocessDone && (
-            <Tag color={f0Done && audioStatus === 'done' ? 'success' : 'processing'}>
-              {f0Done && audioStatus === 'done' ? '已完成' : '进行中'}
-            </Tag>
-          )}
-          {!preprocessDone && <Tag>等待预处理</Tag>}
+          <Text>{t('trainStep.step_title', { n: 2, stage: t('trainStep.feature_extract') })}</Text>
+          {preprocessDone && <Tag color={f0Done && audioStatus === 'done' ? 'success' : 'processing'}>{f0Done && audioStatus === 'done' ? t('common.done') : t('common.running')}</Tag>}
+          {!preprocessDone && <Tag>{t('trainStep.wait_preprocess')}</Tag>}
         </Space>
       }
       size="small"
     >
-      {!preprocessDone && (
-        <Alert type="warning" showIcon style={{ marginBottom: 16 }}
-          message="请先完成步骤 1：数据预处理"
-        />
-      )}
+      {!preprocessDone && <Alert type="warning" showIcon style={{ marginBottom: 16 }} message={t('trainStep.step_required', { n: 1, stage: t('train.preprocess') })} />}
 
       {/* F0 Extraction */}
       {ifF0 && (
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '12px 0',
-          borderBottom: '1px solid var(--color-border-subtle)',
-        }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '12px 0',
+            borderBottom: '1px solid var(--color-border-subtle)',
+          }}
+        >
           <Space>
             <SoundOutlined style={{ color: f0Status === 'done' ? 'var(--color-success)' : 'var(--color-text-tertiary)' }} />
             <div>
-              <Text strong>F0 特征提取</Text>
+              <Text strong>{t('train.f0_extract')}</Text>
               <Tag color={statusColorMap[f0Status]} style={{ marginLeft: 8 }}>
-                {statusTextMap[f0Status]}
+                {t(statusTextKeyMap[f0Status])}
               </Tag>
               <br />
               <Text type="secondary" style={{ fontSize: 12 }}>
-                提取音频的音高信息，RMVPE 算法。没有 F0 模型将无法正确转换。
+                {t('trainStep.f0_desc')}
               </Text>
-              {f0Status === 'running' && f0Percent !== undefined && f0Percent > 0 && (
-                <Progress percent={f0Percent} size="small" style={{ width: 200, marginTop: 4 }} />
-              )}
+              {f0Status === 'running' && f0Percent !== undefined && f0Percent > 0 && <Progress percent={f0Percent} size="small" style={{ width: 200, marginTop: 4 }} />}
               {usage && (
                 <>
                   <br />
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    本步产出：{formatBytes(usage.f0)}
+                    {t('trainStep.step_output', { size: formatBytes(usage.f0) })}
                   </Text>
                 </>
               )}
             </div>
           </Space>
-          <Button
-            type="primary"
-            onClick={onExtractF0}
-            loading={currentExtracting === 'f0'}
-            disabled={!preprocessDone || running}
-          >
-            {f0DoneText ? '重新提取' : f0Status === 'error' ? '重试 F0 提取' : '提取 F0 特征'}
+          <Button type="primary" onClick={onExtractF0} loading={currentExtracting === 'f0'} disabled={!preprocessDone || running}>
+            {f0DoneText ? t('trainStep.re_extract') : f0Status === 'error' ? t('trainStep.retry_f0_extract') : t('trainStep.start_f0_extract')}
           </Button>
         </div>
       )}
 
       {/* Audio Feature Extraction */}
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '12px 0',
-      }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '12px 0',
+        }}
+      >
         <Space>
           <ApartmentOutlined style={{ color: audioStatus === 'done' ? 'var(--color-success)' : 'var(--color-text-tertiary)' }} />
           <div>
-            <Text strong>音频特征提取</Text>
+            <Text strong>{t('train.audio_extract')}</Text>
             <Tag color={statusColorMap[audioStatus]} style={{ marginLeft: 8 }}>
-              {statusTextMap[audioStatus]}
+              {t(statusTextKeyMap[audioStatus])}
             </Tag>
             <br />
             <Text type="secondary" style={{ fontSize: 12 }}>
-                ContentVec 提取 768 维语音特征，是 RVC 的核心。必须等 F0 完成后执行。
-              </Text>
-              {audioStatus === 'running' && audioPercent !== undefined && audioPercent > 0 && (
-                <Progress percent={audioPercent} size="small" style={{ width: 200, marginTop: 4 }} />
-              )}
-              {usage && (
-                <>
-                  <br />
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    本步产出：{formatBytes(usage.feature)}
-                  </Text>
-                </>
-              )}
-            </div>
-          </Space>
-          <Button
-            type="primary"
-            onClick={onExtractAudio}
-            loading={currentExtracting === 'audio'}
-            disabled={!preprocessDone || !f0Done || running}
-          >
-            {audioDoneText ? '重新提取' : audioStatus === 'error' ? '重试音频提取' : '提取音频特征'}
-          </Button>
-        </div>
+              {t('trainStep.audio_desc')}
+            </Text>
+            {audioStatus === 'running' && audioPercent !== undefined && audioPercent > 0 && <Progress percent={audioPercent} size="small" style={{ width: 200, marginTop: 4 }} />}
+            {usage && (
+              <>
+                <br />
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {t('trainStep.step_output', { size: formatBytes(usage.feature) })}
+                </Text>
+              </>
+            )}
+          </div>
+        </Space>
+        <Button type="primary" onClick={onExtractAudio} loading={currentExtracting === 'audio'} disabled={!preprocessDone || !f0Done || running}>
+          {audioDoneText ? t('trainStep.re_extract') : audioStatus === 'error' ? t('trainStep.retry_audio_extract') : t('trainStep.start_audio_extract')}
+        </Button>
+      </div>
 
-      {f0Done && audioStatus === 'done' && (
-        <Alert type="success" showIcon style={{ marginTop: 12 }}
-          message="特征提取完成，可以开始训练模型"
-        />
-      )}
+      {f0Done && audioStatus === 'done' && <Alert type="success" showIcon style={{ marginTop: 12 }} message={t('trainStep.features_done_msg')} />}
     </Card>
   )
 }

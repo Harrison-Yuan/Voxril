@@ -1,3 +1,5 @@
+import { cover, infer, models, settings, shell, train, trainSteps } from './dict'
+
 const zh = {
   // ── App ──
   'app.name': 'Voxril',
@@ -336,6 +338,15 @@ const zh = {
   'status.failed': '失败',
   'status.timeout': '超时',
   'status.please_wait': '请稍候...',
+
+  // ── 按模块拆分的分片，见 i18n/dict/<模块>.ts ──
+  ...train.zh,
+  ...trainSteps.zh,
+  ...models.zh,
+  ...cover.zh,
+  ...infer.zh,
+  ...settings.zh,
+  ...shell.zh,
 }
 
 export default zh

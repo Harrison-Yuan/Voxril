@@ -32,20 +32,20 @@ import { useI18n, type Lang } from '../../i18n'
 import { formatBytes } from '@/lib/formatBytes'
 
 /** 下载源选项，顺序即设置页展示顺序。 */
-const SOURCE_OPTIONS: { value: DownloadSource; zh: string; en: string }[] = [
-  { value: 'auto', zh: '自动（推荐）', en: 'Auto (recommended)' },
-  { value: 'official', zh: '官方源', en: 'Official only' },
-  { value: 'cn', zh: '国内镜像', en: 'China mirror' },
-  { value: 'custom', zh: '自定义', en: 'Custom' },
+const SOURCE_OPTIONS: { value: DownloadSource; labelKey: string }[] = [
+  { value: 'auto', labelKey: 'settings.src_auto' },
+  { value: 'official', labelKey: 'settings.src_official' },
+  { value: 'cn', labelKey: 'settings.src_cn_mirror' },
+  { value: 'custom', labelKey: 'settings.src_custom' },
 ]
 
 /** pip 源选项。 */
-const PIP_SOURCE_OPTIONS: { value: PipSource; zh: string; en: string }[] = [
-  { value: 'auto', zh: '自动（推荐）', en: 'Auto (recommended)' },
-  { value: 'official', zh: '官方 PyPI', en: 'Official PyPI' },
-  { value: 'tuna', zh: '清华镜像', en: 'Tsinghua mirror' },
-  { value: 'aliyun', zh: '阿里云镜像', en: 'Aliyun mirror' },
-  { value: 'custom', zh: '自定义', en: 'Custom' },
+const PIP_SOURCE_OPTIONS: { value: PipSource; labelKey: string }[] = [
+  { value: 'auto', labelKey: 'settings.src_auto' },
+  { value: 'official', labelKey: 'settings.src_pypi_official' },
+  { value: 'tuna', labelKey: 'settings.src_pypi_tuna' },
+  { value: 'aliyun', labelKey: 'settings.src_pypi_aliyun' },
+  { value: 'custom', labelKey: 'settings.src_custom' },
 ]
 
 export default function SettingsPage() {
@@ -130,7 +130,7 @@ export default function SettingsPage() {
     try {
       setReport(await storageApi.getReport())
     } catch (e: any) {
-      message.error(`统计存储占用失败：${e?.message || e}`)
+      message.error(t('settings.storage_scan_failed', { err: e?.message || e }))
     } finally {
       setReportLoading(false)
     }
@@ -151,7 +151,7 @@ export default function SettingsPage() {
       await downloadApi.set(download)
       message.success(t('common.done'))
     } catch (e: any) {
-      message.error(`保存下载设置失败：${e?.message || e}`)
+      message.error(t('settings.download_save_failed', { err: e?.message || e }))
     } finally {
       setDownloadSaving(false)
     }
@@ -209,7 +209,7 @@ export default function SettingsPage() {
           await loadDataDir()
           setDataMigrateResult(msg)
         } catch (e: unknown) {
-          message.error(`${t('datadir.migrate_failed')}：${e instanceof Error ? e.message : String(e)}`)
+          message.error(t('settings.migrate_failed_detail', { err: e instanceof Error ? e.message : String(e) }))
         } finally {
           setDataMigrating(false)
         }
@@ -255,7 +255,7 @@ export default function SettingsPage() {
       setPreview(data)
       setPreviewOpen(true)
     } catch (e: any) {
-      message.error(`生成迁移预览失败：${e?.message || e}`)
+      message.error(t('settings.preview_failed', { err: e?.message || e }))
     } finally {
       setPreviewing(false)
     }
@@ -265,13 +265,13 @@ export default function SettingsPage() {
     setMigrating(true)
     try {
       const result = await layoutApi.migrate()
-      message.success(`升级完成：移动 ${result.moved} 项，共 ${formatBytes(result.total_bytes)}`)
+      message.success(t('settings.migrate_done', { n: result.moved, size: formatBytes(result.total_bytes) }))
       setPreviewOpen(false)
       setPreview(null)
       await loadLayoutStatus()
       await loadReport()
     } catch (e: any) {
-      message.error(`升级失败：${e?.message || e}`)
+      message.error(t('settings.migrate_failed', { err: e?.message || e }))
     } finally {
       setMigrating(false)
     }
@@ -280,21 +280,18 @@ export default function SettingsPage() {
   const handleReclaim = () => {
     const bytes = report?.reclaimable_now ?? 0
     Modal.confirm({
-      title: lang === 'zh' ? '确认释放空间' : 'Reclaim space',
-      content:
-        lang === 'zh'
-          ? `将删除所有批次的 1_16k_wavs、eval、TensorBoard 事件与孤立 STFT 缓存，预计释放 ${formatBytes(bytes)}。训练与转换不受影响。`
-          : `This removes 1_16k_wavs, eval, TensorBoard events and orphan STFT caches for all batches. About ${formatBytes(bytes)} will be freed.`,
-      okText: lang === 'zh' ? '释放' : 'Reclaim',
-      cancelText: lang === 'zh' ? '取消' : 'Cancel',
+      title: t('settings.reclaim_confirm_title'),
+      content: t('settings.reclaim_confirm_desc', { size: formatBytes(bytes) }),
+      okText: t('settings.reclaim_confirm_ok'),
+      cancelText: t('common.cancel'),
       onOk: async () => {
         setReclaiming(true)
         try {
           const res = await storageApi.reclaimAll()
-          message.success(`已释放 ${formatBytes(res.freed_bytes)}（${res.batches} 个批次）`)
+          message.success(t('settings.reclaim_done', { size: formatBytes(res.freed_bytes), n: res.batches }))
           await loadReport()
         } catch (e: any) {
-          message.error(`释放失败：${e?.message || e}`)
+          message.error(t('settings.reclaim_failed', { err: e?.message || e }))
         } finally {
           setReclaiming(false)
         }
@@ -309,7 +306,7 @@ export default function SettingsPage() {
       message.success(res.freed_gb > 0 ? `${res.message}` : res.message)
       await loadReport()
     } catch (e: any) {
-      message.error(`清理失败：${e?.message || e}`)
+      message.error(t('settings.deep_clean_failed', { err: e?.message || e }))
     } finally {
       setDeepCleaning(false)
     }
@@ -320,30 +317,28 @@ export default function SettingsPage() {
   const sourceHint = (() => {
     switch (download.source) {
       case 'official':
-        return lang === 'zh' ? '始终使用 huggingface.co 与 github.com 直连，适合海外网络。' : 'Always use huggingface.co and github.com directly; best for networks outside China.'
+        return t('settings.source_hint_official')
       case 'cn':
-        return lang === 'zh' ? '优先使用 hf-mirror.com 与 GitHub 加速前缀，适合国内网络；失败后仍会回退官方源。' : 'Prefer hf-mirror.com and a GitHub proxy; falls back to official sources on failure.'
+        return t('settings.source_hint_cn')
       case 'custom':
-        return lang === 'zh' ? '先使用你填写的端点，失败后回退官方源。' : 'Use your endpoints first, then fall back to official sources.'
+        return t('settings.source_hint_custom')
       default:
-        return lang === 'zh'
-          ? '自动探测官方源，不可达时切换到国内镜像；下载中断后再次点击会从断点继续。'
-          : 'Probes the official source first, falls back to a mirror, and resumes interrupted downloads.'
+        return t('settings.source_hint_auto')
     }
   })()
 
   const pipHint = (() => {
     switch (download.pip_source) {
       case 'official':
-        return lang === 'zh' ? '始终使用官方 PyPI，适合海外网络。' : 'Always use the official PyPI; best for networks outside China.'
+        return t('settings.pip_hint_official')
       case 'tuna':
-        return lang === 'zh' ? '优先清华 PyPI 镜像，失败后回退官方源。' : 'Prefer the Tsinghua PyPI mirror, then fall back to official PyPI.'
+        return t('settings.pip_hint_tuna')
       case 'aliyun':
-        return lang === 'zh' ? '优先阿里云 PyPI 镜像，失败后回退官方源。' : 'Prefer the Aliyun PyPI mirror, then fall back to official PyPI.'
+        return t('settings.pip_hint_aliyun')
       case 'custom':
-        return lang === 'zh' ? '先使用你填写的索引地址，失败后回退官方源。' : 'Use your index URL first, then fall back to official PyPI.'
+        return t('settings.pip_hint_custom')
       default:
-        return lang === 'zh' ? '自动探测官方 PyPI，不可达时切换清华镜像；首次安装或补齐缺失依赖时生效。' : 'Probes the official PyPI and falls back to the Tsinghua mirror; applies on next install.'
+        return t('settings.pip_hint_auto')
     }
   })()
 
@@ -382,9 +377,7 @@ export default function SettingsPage() {
               { value: 'en', label: 'English' },
             ]}
           />
-          <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: '8px 0 0' }}>
-            {lang === 'zh' ? '切换后立即生效，下次启动自动记住。' : 'Takes effect immediately. Your preference will be remembered on next launch.'}
-          </p>
+          <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: '8px 0 0' }}>{t('settings.language_hint')}</p>
         </div>
       </div>
 
@@ -402,20 +395,16 @@ export default function SettingsPage() {
           }}
         >
           <CloudDownloadOutlined />
-          {lang === 'zh' ? '模型与依赖下载源' : 'Model & dependency sources'}
+          {t('settings.download_card')}
         </div>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: 0 }}>
-            {lang === 'zh'
-              ? '基础模型支持多源下载、断点续传与 SHA256 校验；Python 依赖支持 PyPI 镜像。失败都会自动切换下一个源。'
-              : 'Base models support multiple sources, resume and SHA256 checks; Python packages support PyPI mirrors. Failures fall back automatically.'}
-          </p>
+          <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: 0 }}>{t('settings.download_desc')}</p>
 
           <Select
             value={download.source}
             onChange={(v: DownloadSource) => setDownload((d) => ({ ...d, source: v }))}
             style={{ width: 240 }}
-            options={SOURCE_OPTIONS.map((o) => ({ value: o.value, label: lang === 'zh' ? o.zh : o.en }))}
+            options={SOURCE_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
           />
           <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: 0 }}>{sourceHint}</p>
 
@@ -432,7 +421,7 @@ export default function SettingsPage() {
                     marginBottom: 8,
                   }}
                 >
-                  {lang === 'zh' ? 'HuggingFace 端点' : 'HuggingFace endpoint'}
+                  {t('settings.hf_endpoint')}
                 </div>
                 <Input value={download.hf_endpoint} onChange={(e) => setDownload((d) => ({ ...d, hf_endpoint: e.target.value }))} placeholder="https://hf-mirror.com" />
               </div>
@@ -447,7 +436,7 @@ export default function SettingsPage() {
                     marginBottom: 8,
                   }}
                 >
-                  {lang === 'zh' ? 'GitHub 加速前缀（可选）' : 'GitHub proxy prefix (optional)'}
+                  {t('settings.gh_proxy')}
                 </div>
                 <Input value={download.gh_proxy} onChange={(e) => setDownload((d) => ({ ...d, gh_proxy: e.target.value }))} placeholder="https://ghfast.top" />
               </div>
@@ -457,23 +446,19 @@ export default function SettingsPage() {
           <div style={{ height: 1, background: 'var(--color-border-subtle)', margin: '4px 0' }} />
 
           <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-              {lang === 'zh' ? 'Python 依赖源' : 'Python package source'}
-            </div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>{t('settings.pip_source')}</div>
             <Select
               value={download.pip_source}
               onChange={(v: PipSource) => setDownload((d) => ({ ...d, pip_source: v }))}
               style={{ width: 240 }}
-              options={PIP_SOURCE_OPTIONS.map((o) => ({ value: o.value, label: lang === 'zh' ? o.zh : o.en }))}
+              options={PIP_SOURCE_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
             />
           </div>
           <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: 0 }}>{pipHint}</p>
 
           {download.pip_source === 'custom' && (
             <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-                {lang === 'zh' ? 'PyPI 索引地址' : 'PyPI index URL'}
-              </div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>{t('settings.pip_index')}</div>
               <Input value={download.pip_index} onChange={(e) => setDownload((d) => ({ ...d, pip_index: e.target.value }))} placeholder="https://pypi.tuna.tsinghua.edu.cn/simple" />
             </div>
           )}
@@ -499,9 +484,7 @@ export default function SettingsPage() {
           {t('settings.workspace')}
         </div>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: 0 }}>
-            {lang === 'zh' ? '所有训练数据、模型文件和索引文件都存储在此目录下' : 'All training data, model files, and index files are stored in this directory.'}
-          </p>
+          <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: 0 }}>{t('settings.workspace_desc')}</p>
 
           <div
             style={{
@@ -534,7 +517,7 @@ export default function SettingsPage() {
             </Button>
           </div>
 
-          <Alert message={lang === 'zh' ? '修改后需要重启应用才能生效' : 'Changes require a restart to take effect'} type="warning" showIcon style={{ fontSize: 13 }} />
+          <Alert message={t('settings.workspace_restart_warn')} type="warning" showIcon style={{ fontSize: 13 }} />
         </div>
       </div>
 
@@ -606,7 +589,7 @@ export default function SettingsPage() {
           }}
         >
           <DatabaseOutlined />
-          {lang === 'zh' ? '工作区结构' : 'Workspace Layout'}
+          {t('settings.layout_card')}
         </div>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
           {!layoutStatus ? (
@@ -614,31 +597,25 @@ export default function SettingsPage() {
           ) : layoutStatus.is_v2 ? (
             <>
               <Space>
-                <Tag color="success">{lang === 'zh' ? '新布局（v2）' : 'New layout (v2)'}</Tag>
+                <Tag color="success">{t('settings.layout_v2_tag')}</Tag>
                 {layoutStatus.migrated_at && (
                   <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                    {lang === 'zh' ? '升级于 ' : 'Migrated '}
+                    {t('settings.layout_migrated_at')}
                     {new Date(layoutStatus.migrated_at * 1000).toLocaleString()}
                   </span>
                 )}
               </Space>
-              <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: 0 }}>
-                {lang === 'zh' ? '目录已整理为「进 / 算 / 出 / 留」四层：inputs、work、outputs、models。' : 'Directories are organized into inputs / work / outputs / models.'}
-              </p>
+              <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: 0 }}>{t('settings.layout_v2_desc')}</p>
             </>
           ) : (
             <>
               <Space>
-                <Tag color="warning">{lang === 'zh' ? '旧布局（v1）' : 'Old layout (v1)'}</Tag>
+                <Tag color="warning">{t('settings.layout_v1_tag')}</Tag>
               </Space>
-              <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: 0 }}>
-                {lang === 'zh'
-                  ? '可将工作区整理为「进 / 算 / 出 / 留」四层结构：素材进 inputs，计算产物进 work，成品进 outputs，模型资产进 models。迁移前可先预览，失败会自动回滚。'
-                  : 'Reorganize the workspace into inputs / work / outputs / models. You can preview first; any failure rolls back automatically.'}
-              </p>
+              <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: 0 }}>{t('settings.layout_v1_desc')}</p>
               <div>
                 <Button type="primary" icon={<ArrowRightOutlined />} onClick={openPreview} loading={previewing}>
-                  {lang === 'zh' ? '预览升级' : 'Preview upgrade'}
+                  {t('settings.layout_preview_btn')}
                 </Button>
               </div>
             </>
@@ -660,7 +637,7 @@ export default function SettingsPage() {
           }}
         >
           <ClearOutlined />
-          {lang === 'zh' ? '清理中心' : 'Cleanup Center'}
+          {t('settings.cleanup_card')}
         </div>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
           {reportLoading && !report ? (
@@ -680,11 +657,11 @@ export default function SettingsPage() {
                 }}
               >
                 <div>
-                  <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{lang === 'zh' ? '可立即释放' : 'Reclaimable now'}</div>
+                  <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{t('settings.reclaimable_now')}</div>
                   <div style={{ fontSize: 22, fontWeight: 600 }}>{formatBytes(report.reclaimable_now)}</div>
                 </div>
                 <Button type="primary" icon={<ClearOutlined />} onClick={handleReclaim} loading={reclaiming} disabled={report.reclaimable_now <= 0}>
-                  {lang === 'zh' ? '释放空间' : 'Reclaim'}
+                  {t('settings.reclaim')}
                 </Button>
               </div>
 
@@ -709,23 +686,21 @@ export default function SettingsPage() {
                   paddingTop: 4,
                 }}
               >
-                <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                  {lang === 'zh' ? '构建缓存（应用本身）单独清理，不影响工作区数据' : 'Build caches are cleaned separately without touching workspace data.'}
-                </span>
+                <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{t('settings.deep_clean_note')}</span>
                 <Button size="small" onClick={handleDeepClean} loading={deepCleaning}>
-                  {lang === 'zh' ? '清理构建缓存' : 'Clean build cache'}
+                  {t('settings.deep_clean_btn')}
                 </Button>
               </div>
 
               <div>
                 <Button size="small" icon={<ReloadOutlined />} onClick={loadReport} loading={reportLoading}>
-                  {lang === 'zh' ? '刷新统计' : 'Refresh'}
+                  {t('common.refresh')}
                 </Button>
               </div>
             </>
           ) : (
             <Button size="small" onClick={loadReport} loading={reportLoading}>
-              {lang === 'zh' ? '统计存储占用' : 'Scan storage'}
+              {t('settings.scan_storage')}
             </Button>
           )}
         </div>
@@ -796,7 +771,7 @@ export default function SettingsPage() {
 
       {/* Migration Preview Modal */}
       <Modal
-        title={lang === 'zh' ? '升级工作区结构（预览）' : 'Upgrade workspace layout (preview)'}
+        title={t('settings.migrate_preview_title')}
         open={previewOpen}
         onCancel={() => !migrating && setPreviewOpen(false)}
         maskClosable={!migrating}
@@ -804,21 +779,17 @@ export default function SettingsPage() {
         width={640}
         footer={[
           <Button key="cancel" onClick={() => setPreviewOpen(false)} disabled={migrating}>
-            {lang === 'zh' ? '取消' : 'Cancel'}
+            {t('common.cancel')}
           </Button>,
           <Button key="ok" type="primary" danger loading={migrating} disabled={previewBlocked || !preview} onClick={confirmMigrate}>
-            {lang === 'zh' ? '开始升级' : 'Upgrade'}
+            {t('settings.migrate_start')}
           </Button>,
         ]}
       >
         {preview && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {preview.blockers.length > 0 && <Alert type="error" showIcon message={preview.blockers.join('；')} />}
-            <div style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
-              {lang === 'zh'
-                ? `共 ${preview.items.length} 项，合计 ${formatBytes(preview.total_bytes)}。迁移为同卷重命名，瞬时完成；任一项失败会整体回滚。`
-                : `${preview.items.length} items, ${formatBytes(preview.total_bytes)} total. Moves are same-volume renames and roll back on any failure.`}
-            </div>
+            {preview.blockers.length > 0 && <Alert type="error" showIcon message={preview.blockers.join(t('settings.list_sep'))} />}
+            <div style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>{t('settings.migrate_preview_summary', { n: preview.items.length, size: formatBytes(preview.total_bytes) })}</div>
             <div
               style={{
                 maxHeight: 320,
@@ -828,9 +799,7 @@ export default function SettingsPage() {
               }}
             >
               {preview.items.length === 0 ? (
-                <div style={{ padding: 16, fontSize: 13, color: 'var(--color-text-tertiary)' }}>
-                  {lang === 'zh' ? '没有需要移动的内容，升级只会建立新目录结构。' : 'Nothing to move; the upgrade only creates the new directory structure.'}
-                </div>
+                <div style={{ padding: 16, fontSize: 13, color: 'var(--color-text-tertiary)' }}>{t('settings.migrate_preview_empty')}</div>
               ) : (
                 preview.items.map((item) => (
                   <div

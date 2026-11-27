@@ -9,11 +9,7 @@ import { workspaceApi } from '../../api/workspace'
 import { useUvrStore } from '../../store/uvrStore'
 
 function CardHeader({ title }: { title: React.ReactNode }) {
-  return (
-    <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--color-border-subtle)', fontSize: 13, fontWeight: 600 }}>
-      {title}
-    </div>
-  )
+  return <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--color-border-subtle)', fontSize: 13, fontWeight: 600 }}>{title}</div>
 }
 
 function InfoSection({ title, items }: { title: string; items: { label?: string; desc: string }[] }) {
@@ -23,10 +19,11 @@ function InfoSection({ title, items }: { title: string; items: { label?: string;
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {items.map((item, i) => (
           <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12 }}>
-            {item.label
-              ? <code style={{ background: 'var(--color-bg-hover)', padding: '1px 6px', borderRadius: 4, fontSize: 11, color: 'var(--color-primary-hover)', flexShrink: 0 }}>{item.label}</code>
-              : <span style={{ color: 'var(--color-primary-hover)', flexShrink: 0 }}>·</span>
-            }
+            {item.label ? (
+              <code style={{ background: 'var(--color-bg-hover)', padding: '1px 6px', borderRadius: 4, fontSize: 11, color: 'var(--color-primary-hover)', flexShrink: 0 }}>{item.label}</code>
+            ) : (
+              <span style={{ color: 'var(--color-primary-hover)', flexShrink: 0 }}>·</span>
+            )}
             <span style={{ color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>{item.desc}</span>
           </div>
         ))}
@@ -37,63 +34,83 @@ function InfoSection({ title, items }: { title: string; items: { label?: string;
 
 export default function UVRPage() {
   const navigate = useNavigate()
-  const { t, lang } = useI18n()
+  const { t } = useI18n()
   const [form] = Form.useForm()
   const [selectedSongPath, setSelectedSongPath] = useState('')
   const [datasetsRoot, setDatasetsRoot] = useState('')
   const [aggValue, setAggValue] = useState(10)
 
-  const loading = useUvrStore(s => s.loading)
-  const log = useUvrStore(s => s.log)
-  const progressPercent = useUvrStore(s => s.progressPercent)
-  const progressStep = useUvrStore(s => s.progressStep)
-  const progressCurrent = useUvrStore(s => s.progressCurrent)
-  const progressTotal = useUvrStore(s => s.progressTotal)
-  const result = useUvrStore(s => s.result)
-  const startSeparate = useUvrStore(s => s.startSeparate)
-  const cancelSeparate = useUvrStore(s => s.cancel)
+  const loading = useUvrStore((s) => s.loading)
+  const log = useUvrStore((s) => s.log)
+  const progressPercent = useUvrStore((s) => s.progressPercent)
+  const progressStep = useUvrStore((s) => s.progressStep)
+  const progressCurrent = useUvrStore((s) => s.progressCurrent)
+  const progressTotal = useUvrStore((s) => s.progressTotal)
+  const result = useUvrStore((s) => s.result)
+  const startSeparate = useUvrStore((s) => s.startSeparate)
+  const cancelSeparate = useUvrStore((s) => s.cancel)
 
   useEffect(() => {
-    workspaceApi.getDatasetsRoot().then(setDatasetsRoot).catch(() => {})
+    workspaceApi
+      .getDatasetsRoot()
+      .then(setDatasetsRoot)
+      .catch(() => {})
   }, [])
 
   const selectFolder = async (field: 'inputPath' | 'outputDir', title: string) => {
     try {
       const sel = await open({ directory: true, multiple: false, title })
-      if (sel) { form.setFieldValue(field, sel); if (field === 'inputPath') setSelectedSongPath('') }
-    } catch (e) { message.error(`选择文件夹失败：${String(e)}`) }
+      if (sel) {
+        form.setFieldValue(field, sel)
+        if (field === 'inputPath') setSelectedSongPath('')
+      }
+    } catch (e) {
+      message.error(t('uvr.folder_pick_failed', { err: String(e) }))
+    }
   }
 
   const selectSong = async () => {
     try {
-      const sel = await open({ directory: false, multiple: false, title: '选择要分离的单首歌曲', filters: [{ name: 'Audio', extensions: ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac'] }] })
-      if (sel) { form.setFieldValue('inputPath', sel); setSelectedSongPath(sel); message.success(`已选择：${sel.split('/').pop()}`) }
-    } catch (e) { message.error(`选择歌曲失败：${String(e)}`) }
+      const sel = await open({ directory: false, multiple: false, title: t('uvr.pick_song_title'), filters: [{ name: 'Audio', extensions: ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac'] }] })
+      if (sel) {
+        form.setFieldValue('inputPath', sel)
+        setSelectedSongPath(sel)
+        message.success(t('uvr.song_selected', { name: String(sel.split('/').pop()) }))
+      }
+    } catch (e) {
+      message.error(t('uvr.song_pick_failed', { err: String(e) }))
+    }
   }
 
   const handleSeparate = async () => {
     const v = form.getFieldsValue()
-    if (!v.inputPath) { message.warning('请填写输入文件夹路径'); return }
+    if (!v.inputPath) {
+      message.warning(t('uvr.input_required'))
+      return
+    }
     await startSeparate({
       model_name: v.model_name,
       input_path: v.inputPath,
       output_dir: v.outputDir || undefined,
-      agg: v.agg, format: v.format,
+      agg: v.agg,
+      format: v.format,
     })
   }
 
   const UVR_MODELS = [
-    { value: 'model_bs_roformer_ep_317_sdr_12.9755.ckpt', label: 'BS-RoFormer (人声/伴奏)', desc: '当前最强的人声分离模型，SDR 12.97' },
-    { value: 'UVR_MDXNET_Main.onnx', label: 'MDX-Net Main Vocals (主唱)', desc: '专门用于分离主唱，尽可能去除和声与伴奏' },
-    { value: 'UVR-MDX-NET-KARA_2.onnx', label: 'MDX-Net Karaoke 2 (去和声)', desc: '去除伴奏的同时，尽可能剥离背景和声' },
-    { value: 'UVR-MDX-NET-Voc_FT.onnx', label: 'MDX-Net Voc FT (经典)', desc: '经典的 MDX-Net 人声提取模型，稳定性好' },
-    { value: 'Kim_Vocal_2.onnx', label: 'Kim Vocal 2 (清晰人声)', desc: '在人声清晰度上有很好表现的 MDX-Net 模型' },
+    { value: 'model_bs_roformer_ep_317_sdr_12.9755.ckpt', label: t('uvr.model_bs_roformer'), desc: t('uvr.model_bs_roformer_desc') },
+    { value: 'UVR_MDXNET_Main.onnx', label: t('uvr.model_mdx_main'), desc: t('uvr.model_mdx_main_desc') },
+    { value: 'UVR-MDX-NET-KARA_2.onnx', label: t('uvr.model_mdx_karaoke2'), desc: t('uvr.model_mdx_karaoke2_desc') },
+    { value: 'UVR-MDX-NET-Voc_FT.onnx', label: t('uvr.model_mdx_voc_ft'), desc: t('uvr.model_mdx_voc_ft_desc') },
+    { value: 'Kim_Vocal_2.onnx', label: t('uvr.model_kim_v2'), desc: t('uvr.model_kim_v2_desc') },
   ]
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
-        <div className="icon-badge icon-badge--md" style={{ borderRadius: 10 }}><ScissorOutlined /></div>
+        <div className="icon-badge icon-badge--md" style={{ borderRadius: 10 }}>
+          <ScissorOutlined />
+        </div>
         <div>
           <h1 className="page-header__title">{t('uvr.title')}</h1>
           <p className="page-header__subtitle">{t('uvr.subtitle')}</p>
@@ -108,43 +125,69 @@ export default function UVRPage() {
             <CardHeader title={t('uvr.input_config')} />
             <div style={{ padding: 20 }}>
               <Form form={form} layout="vertical" initialValues={{ format: 'flac', agg: 10, model_name: 'model_bs_roformer_ep_317_sdr_12.9755.ckpt' }}>
-                <Form.Item label={t('uvr.model')} name="model_name" tooltip={lang === 'zh' ? '不同的模型擅长不同的分离任务' : 'Different models excel at different separation tasks'}>
-                  <Select options={UVR_MODELS.map(m => ({
-                    value: m.value,
-                    label: (
-                      <div style={{ display: 'flex', flexDirection: 'column', padding: '2px 0' }}>
-                        <span style={{ fontWeight: 500 }}>{m.label}</span>
-                        <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>{m.desc}</span>
-                      </div>
-                    )
-                  }))} listHeight={400} />
+                <Form.Item label={t('uvr.model')} name="model_name" tooltip={t('uvr.model_tooltip')}>
+                  <Select
+                    options={UVR_MODELS.map((m) => ({
+                      value: m.value,
+                      label: (
+                        <div style={{ display: 'flex', flexDirection: 'column', padding: '2px 0' }}>
+                          <span style={{ fontWeight: 500 }}>{m.label}</span>
+                          <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>{m.desc}</span>
+                        </div>
+                      ),
+                    }))}
+                    listHeight={400}
+                  />
                 </Form.Item>
                 <Form.Item label={t('uvr.source')} name="inputPath" rules={[{ required: true }]}>
-                  <Input placeholder={t('common.select')} readOnly addonAfter={
-                    <Space size={0}>
-                      <Button type="link" size="small" icon={<FileOutlined />} onClick={selectSong}>{t('common.select')}</Button>
-                      <Button type="link" size="small" icon={<FolderOpenOutlined />} onClick={() => selectFolder('inputPath', t('common.select'))}>{t('common.browse')}</Button>
-                    </Space>
-                  } />
-                 </Form.Item>
+                  <Input
+                    placeholder={t('common.select')}
+                    readOnly
+                    addonAfter={
+                      <Space size={0}>
+                        <Button type="link" size="small" icon={<FileOutlined />} onClick={selectSong}>
+                          {t('common.select')}
+                        </Button>
+                        <Button type="link" size="small" icon={<FolderOpenOutlined />} onClick={() => selectFolder('inputPath', t('common.select'))}>
+                          {t('common.browse')}
+                        </Button>
+                      </Space>
+                    }
+                  />
+                </Form.Item>
                 {selectedSongPath && (
-                  <Alert type="info" showIcon style={{ marginBottom: 18, marginTop: -10 }} message={lang === 'zh' ? '单曲模式' : 'Single Song Mode'}
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 18, marginTop: -10 }}
+                    message={t('uvr.single_mode')}
                     description={<span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', wordBreak: 'break-all' }}>{selectedSongPath}</span>}
                   />
                 )}
                 <Form.Item label={t('uvr.output_dir')} name="outputDir">
-                  <Input placeholder={datasetsRoot ? `${t('common.default')}：${datasetsRoot}/` : (lang === 'zh' ? '留空则使用默认数据集目录' : 'Leave empty to use the default dataset folder')} addonAfter={
-                    <Button type="link" size="small" icon={<FolderOpenOutlined />} onClick={() => selectFolder('outputDir', t('common.browse'))}>{t('common.browse')}</Button>
-                  } />
+                  <Input
+                    placeholder={datasetsRoot ? t('uvr.output_dir_default', { path: `${datasetsRoot}/` }) : t('uvr.output_dir_placeholder')}
+                    addonAfter={
+                      <Button type="link" size="small" icon={<FolderOpenOutlined />} onClick={() => selectFolder('outputDir', t('common.browse'))}>
+                        {t('common.browse')}
+                      </Button>
+                    }
+                  />
                 </Form.Item>
-                  <Row gutter={16}>
+                <Row gutter={16}>
                   <Col span={12}>
                     <Form.Item label={t('uvr.output_format')} name="format">
-                      <Select options={[{ value: 'wav', label: 'WAV' }, { value: 'flac', label: 'FLAC' }, { value: 'mp3', label: 'MP3' }]} />
+                      <Select
+                        options={[
+                          { value: 'wav', label: 'WAV' },
+                          { value: 'flac', label: 'FLAC' },
+                          { value: 'mp3', label: 'MP3' },
+                        ]}
+                      />
                     </Form.Item>
                   </Col>
                   <Col span={12}>
-                    <Form.Item label={`${t('uvr.agg')}：${aggValue}`} name="agg">
+                    <Form.Item label={t('uvr.agg_label', { value: aggValue })} name="agg">
                       <Slider min={0} max={20} step={1} marks={{ 0: t('uvr.agg_mild'), 10: t('uvr.agg_default'), 20: t('uvr.agg_aggressive') }} onChange={setAggValue} />
                     </Form.Item>
                   </Col>
@@ -155,16 +198,16 @@ export default function UVRPage() {
         </Col>
         <Col span={10}>
           <div className="ant-card" style={{ padding: 0, height: '100%' }}>
-            <CardHeader title={lang === 'zh' ? '说明' : 'Info'} />
+            <CardHeader title={t('uvr.info')} />
             <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 20 }}>
-              <InfoSection title={lang === 'zh' ? '输出文件' : 'Output Files'} items={[
-                { label: 'vocal.wav', desc: lang === 'zh' ? '人声（用于语音转换）' : 'Vocals (for voice conversion)' },
-                { label: 'instrument.wav', desc: lang === 'zh' ? '纯伴奏' : 'Instrumental only' }
-              ]} />
-              <InfoSection title={lang === 'zh' ? '提示' : 'Tips'} items={[
-                { desc: lang === 'zh' ? '分离后的人声文件留到「语音转换」页面使用' : 'Take separated vocals to the Voice Conversion page' },
-                { desc: lang === 'zh' ? '伴奏文件先保留，等转换后再混合导出' : 'Keep the instrumental for later mixing' }
-              ]} />
+              <InfoSection
+                title={t('uvr.info_output_files')}
+                items={[
+                  { label: 'vocal.wav', desc: t('uvr.info_vocal_desc') },
+                  { label: 'instrument.wav', desc: t('uvr.info_instrument_desc') },
+                ]}
+              />
+              <InfoSection title={t('uvr.info_tips')} items={[{ desc: t('uvr.tip_use_vocal') }, { desc: t('uvr.tip_keep_instrument') }]} />
             </div>
           </div>
         </Col>
@@ -193,7 +236,11 @@ export default function UVRPage() {
               <div>
                 <Progress percent={progressPercent} status={progressPercent === 100 ? 'success' : 'active'} strokeColor={{ '0%': '#7c3aed', '100%': '#a78bfa' }} trailColor="var(--color-bg-hover)" />
                 <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 4 }}>
-                  {progressStep === 'file' ? (lang === 'zh' ? `文件 ${progressCurrent}/${progressTotal}` : `File ${progressCurrent}/${progressTotal}`) : progressStep === 'segment' ? (lang === 'zh' ? `音频分段 ${progressCurrent}/${progressTotal}` : `Segment ${progressCurrent}/${progressTotal}`) : lang === 'zh' ? '准备中...' : 'Preparing...'}
+                  {progressStep === 'file'
+                    ? t('uvr.progress_file', { cur: progressCurrent, total: progressTotal })
+                    : progressStep === 'segment'
+                      ? t('uvr.progress_segment', { cur: progressCurrent, total: progressTotal })
+                      : t('uvr.progress_preparing')}
                 </div>
               </div>
             )}
@@ -204,35 +251,72 @@ export default function UVRPage() {
 
       {result && (
         <div className="ant-card animate-fade-in" style={{ padding: 0 }}>
-          <CardHeader title={
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {result.ok ? <CheckCircleOutlined style={{ color: 'var(--color-success)' }} /> : <WarningOutlined style={{ color: 'var(--color-warning)' }} />}
-              {t('uvr.result')}
-            </span>
-          } />
+          <CardHeader
+            title={
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {result.ok ? <CheckCircleOutlined style={{ color: 'var(--color-success)' }} /> : <WarningOutlined style={{ color: 'var(--color-warning)' }} />}
+                {t('uvr.result')}
+              </span>
+            }
+          />
           <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <Alert type={result.ok ? 'success' : 'warning'} showIcon message={result.ok ? (lang === 'zh' ? '已检测到分离输出文件' : 'Separation output detected') : (lang === 'zh' ? '后端已返回，但未检测到输出文件' : 'Backend returned but no output detected')} />
-            {[{ label: t('uvr.vocal_dir'), value: result.vocalDir, files: result.vocalFiles }, { label: t('uvr.instrument_dir'), value: result.instrumentDir, files: result.instrumentFiles }].map(row => (
+            <Alert type={result.ok ? 'success' : 'warning'} showIcon message={result.ok ? t('uvr.result_detected') : t('uvr.result_missing')} />
+            {[
+              { label: t('uvr.vocal_dir'), value: result.vocalDir, files: result.vocalFiles },
+              { label: t('uvr.instrument_dir'), value: result.instrumentDir, files: result.instrumentFiles },
+            ].map((row) => (
               <div key={row.label}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>{row.label}</div>
-                <code style={{ fontSize: 11, color: 'var(--color-text-secondary)', background: 'var(--color-bg-base)', padding: '3px 8px', borderRadius: 4, display: 'block', marginBottom: 6, wordBreak: 'break-all' }}>{row.value}</code>
-                {row.files.length > 0 ? row.files.map(f => (
-                  <div key={f} style={{ fontSize: 12, color: 'var(--color-text-tertiary)', paddingLeft: 8, display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>· {f}</span>
-                    {row.label === t('uvr.instrument_dir') && (
-                      <Button type="link" size="small" style={{ fontSize: 11, flexShrink: 0 }}
-                        onClick={() => { navigate('/infer'); message.success(lang === 'zh' ? '伴奏路径已记录，切换到语音转换页面后会自动填充' : 'Instrumental path saved. Will auto-fill on Voice Conversion page.') }}
-                      >{t('uvr.use_instrument')}</Button>
-                    )}
-                  </div>
-                )) : <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', paddingLeft: 8 }}>· {lang === 'zh' ? '（未检测到）' : '(not found)'}</div>}
+                <code
+                  style={{
+                    fontSize: 11,
+                    color: 'var(--color-text-secondary)',
+                    background: 'var(--color-bg-base)',
+                    padding: '3px 8px',
+                    borderRadius: 4,
+                    display: 'block',
+                    marginBottom: 6,
+                    wordBreak: 'break-all',
+                  }}
+                >
+                  {row.value}
+                </code>
+                {row.files.length > 0 ? (
+                  row.files.map((f) => (
+                    <div key={f} style={{ fontSize: 12, color: 'var(--color-text-tertiary)', paddingLeft: 8, display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>· {f}</span>
+                      {row.label === t('uvr.instrument_dir') && (
+                        <Button
+                          type="link"
+                          size="small"
+                          style={{ fontSize: 11, flexShrink: 0 }}
+                          onClick={() => {
+                            navigate('/infer')
+                            message.success(t('uvr.instrument_fill_hint'))
+                          }}
+                        >
+                          {t('uvr.use_instrument')}
+                        </Button>
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', paddingLeft: 8 }}>· {t('uvr.not_detected')}</div>
+                )}
               </div>
             ))}
             {result.ok && result.instrumentFiles.length > 0 && (
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                <Button type="primary" icon={<MergeOutlined />}
-                  onClick={() => { navigate('/infer'); message.success(lang === 'zh' ? '伴奏路径已记录，到语音转换页面完成变调后一键合成' : 'Instrumental saved. Go to Voice Conversion to mix after pitch shift.') }}
-                >{t('infer.merge')}</Button>
+                <Button
+                  type="primary"
+                  icon={<MergeOutlined />}
+                  onClick={() => {
+                    navigate('/infer')
+                    message.success(t('uvr.instrument_merge_hint'))
+                  }}
+                >
+                  {t('infer.merge')}
+                </Button>
               </div>
             )}
           </div>
@@ -240,10 +324,14 @@ export default function UVRPage() {
       )}
 
       <div className="ant-card" style={{ padding: 0 }}>
-        <CardHeader title={lang === 'zh' ? '下一步' : 'Next Steps'} />
+        <CardHeader title={t('uvr.next_steps')} />
         <div style={{ padding: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
           <div style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>{t('uvr.next_step')}</div>
-          <Link to="/infer"><Button type="primary" style={{ flexShrink: 0 }}>{t('uvr.go_infer')}</Button></Link>
+          <Link to="/infer">
+            <Button type="primary" style={{ flexShrink: 0 }}>
+              {t('uvr.go_infer')}
+            </Button>
+          </Link>
         </div>
       </div>
     </div>

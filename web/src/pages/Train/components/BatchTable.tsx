@@ -3,6 +3,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { DeleteOutlined } from '@ant-design/icons'
 import type { ExperimentSummary } from '../services/trainApi'
 import { formatBytes } from '@/lib/formatBytes'
+import { useI18n } from '@/i18n'
 
 const { Text } = Typography
 
@@ -32,28 +33,21 @@ interface BatchTableProps {
  * 批次表格：训练页与模型页共用。
  * 训练页额外需要「加载」「当前」；模型页只看历史批次，故两者均由 props 控制。
  */
-export function BatchTable({
-  batches,
-  currentRunKey,
-  running = false,
-  onLoad,
-  onDelete,
-  showFingerprint = false,
-  emptyText = '暂无批次',
-}: BatchTableProps) {
+export function BatchTable({ batches, currentRunKey, running = false, onLoad, onDelete, showFingerprint = false, emptyText }: BatchTableProps) {
+  const { t } = useI18n()
   const columns: ColumnsType<ExperimentSummary> = [
     {
-      title: '批次',
+      title: t('trainStep.col_batch'),
       dataIndex: 'run_id',
       render: (runId: string, record) => (
         <Space size={4}>
           <Text>{formatRunDate(runId)}</Text>
-          {currentRunKey === `${record.voice}/${record.run_id}` && <Tag color="processing">当前</Tag>}
+          {currentRunKey === `${record.voice}/${record.run_id}` && <Tag color="processing">{t('trainStep.current_tag')}</Tag>}
         </Space>
       ),
     },
     {
-      title: '采样率',
+      title: t('train.sr'),
       dataIndex: 'sr',
       width: 90,
       render: (sr: string | null) => sr ?? '—',
@@ -68,13 +62,15 @@ export function BatchTable({
 
   if (showFingerprint) {
     columns.push({
-      title: '数据集指纹',
+      title: t('trainStep.col_fingerprint'),
       dataIndex: 'fingerprint',
       width: 120,
       render: (fingerprint: string | null) =>
         fingerprint ? (
           <Tooltip title={fingerprint}>
-            <Text code style={{ fontSize: 11 }}>{fingerprint.slice(0, 8)}</Text>
+            <Text code style={{ fontSize: 11 }}>
+              {fingerprint.slice(0, 8)}
+            </Text>
           </Tooltip>
         ) : (
           '—'
@@ -84,44 +80,34 @@ export function BatchTable({
 
   columns.push(
     {
-      title: '权重',
+      title: t('trainStep.col_weights'),
       dataIndex: 'has_model',
       width: 80,
-      render: (has: boolean) => (has ? '已生成' : '—'),
+      render: (has: boolean) => (has ? t('trainStep.weights_ready') : '—'),
     },
     {
-      title: '索引',
+      title: t('trainStep.col_index'),
       dataIndex: 'has_index',
       width: 80,
-      render: (has: boolean) => (has ? '已构建' : '—'),
+      render: (has: boolean) => (has ? t('trainStep.index_ready') : '—'),
     },
     {
-      title: '占用',
+      title: t('trainStep.col_size'),
       dataIndex: 'bytes',
       width: 100,
       render: (bytes: number) => formatBytes(bytes),
     },
     {
-      title: '操作',
+      title: t('trainStep.col_actions'),
       width: onLoad ? 140 : 80,
       render: (_: unknown, record) => (
         <Space size={4}>
           {onLoad && (
-            <Button
-              size="small"
-              disabled={running || currentRunKey === `${record.voice}/${record.run_id}`}
-              onClick={() => onLoad(record)}
-            >
-              加载
+            <Button size="small" disabled={running || currentRunKey === `${record.voice}/${record.run_id}`} onClick={() => onLoad(record)}>
+              {t('trainStep.load')}
             </Button>
           )}
-          <Button
-            size="small"
-            danger
-            icon={<DeleteOutlined />}
-            disabled={running}
-            onClick={() => onDelete(record)}
-          />
+          <Button size="small" danger icon={<DeleteOutlined />} disabled={running} onClick={() => onDelete(record)} />
         </Space>
       ),
     },
@@ -133,7 +119,7 @@ export function BatchTable({
       rowKey={(record) => `${record.voice}/${record.run_id}`}
       dataSource={batches}
       pagination={false}
-      locale={{ emptyText }}
+      locale={{ emptyText: emptyText ?? t('trainStep.no_batches') }}
       columns={columns}
     />
   )

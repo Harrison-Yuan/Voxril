@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import type { ConvertRequest, ConvertResponse } from '../api/infer'
+import { t } from '@/i18n/runtime'
 
 interface InferState {
   loading: boolean
@@ -66,12 +67,12 @@ export const useInferStore = create<InferState>((set, get) => ({
 
       const result = await invoke<ConvertResponse>('convert_voice_streaming', { request, eventId })
       set(s => ({
-        log: s.log + '\n' + (result.message || '完成'),
+        log: s.log + '\n' + (result.message || t('common.done')),
         outputUrl: result.ok && result.output_path ? result.output_path : '',
       }))
       return result
     } catch (error) {
-      set(s => ({ log: s.log + `\n转换失败：${String(error)}` }))
+      set(s => ({ log: s.log + `\n${t('shell.convert_failed_detail', { err: String(error) })}` }))
       return { ok: false, message: String(error), output_path: '' }
     } finally {
       set({ loading: false })

@@ -4,6 +4,7 @@ import type { WorkflowStage } from '@/store/trainStore'
 import type { ExperimentConfig } from '../hooks/useExperimentConfig'
 import type { RunUsage } from '../services/trainApi'
 import { formatBytes } from '@/lib/formatBytes'
+import { useI18n } from '@/i18n'
 
 const { Text } = Typography
 
@@ -24,13 +25,14 @@ interface TrainModelStepProps {
   onClearTraining: () => void
 }
 
-const statusTextMap: Record<WorkflowStage, string> = {
-  pending: '未开始',
-  running: '进行中',
-  done: '已完成',
-  error: '失败',
-  stale: '需重跑',
-  reclaimed: '已回收',
+/** 阶段状态 → 文案键，渲染时再经 t() 取词，切换语言才会刷新 */
+const statusTextKeyMap: Record<WorkflowStage, string> = {
+  pending: 'common.pending',
+  running: 'common.running',
+  done: 'common.done',
+  error: 'common.failed',
+  stale: 'trainStep.status_stale',
+  reclaimed: 'trainStep.status_reclaimed',
 }
 
 const statusColorMap: Record<WorkflowStage, string> = {
@@ -58,24 +60,25 @@ export const TrainModelStep = ({
   onBuildIndex,
   onClearTraining,
 }: TrainModelStepProps) => {
+  const { t } = useI18n()
   const getButtonText = () => {
-    if (trainEpoch > 0 && trainEpoch < totalEpoch) return '继续训练'
-    if (trainStatus === 'done') return '重新训练模型'
-    return '开始训练模型'
+    if (trainEpoch > 0 && trainEpoch < totalEpoch) return t('train.retrain')
+    if (trainStatus === 'done') return t('trainStep.rerun_train')
+    return t('train.start')
   }
 
   const getIndexButtonText = () => {
-    if (indexStatus === 'running') return '正在构建索引...'
-    if (indexStatus === 'done') return '重新构建索引'
-    return '训练特征索引'
+    if (indexStatus === 'running') return t('trainStep.index_building')
+    if (indexStatus === 'done') return t('train.rebuild_index')
+    return t('train.build_index')
   }
 
   return (
     <Card
       title={
         <Space>
-          <Text>步骤 3：训练模型</Text>
-          <Tag color={statusColorMap[trainStatus]}>{statusTextMap[trainStatus]}</Tag>
+          <Text>{t('trainStep.step_title', { n: 3, stage: t('train.train_model') })}</Text>
+          <Tag color={statusColorMap[trainStatus]}>{t(statusTextKeyMap[trainStatus])}</Tag>
         </Space>
       }
       size="small"
@@ -83,21 +86,15 @@ export const TrainModelStep = ({
         <Space>
           {(trainEpoch > 0 || trainStatus === 'done') && (
             <Button danger onClick={onClearTraining} icon={<DeleteOutlined />}>
-              重置批次
+              {t('trainStep.reset_batch')}
             </Button>
           )}
           {trainStatus === 'running' && (
             <Button danger onClick={onStop}>
-              停止训练
+              {t('common.stop')}
             </Button>
           )}
-          <Button
-            type="primary"
-            onClick={onRun}
-            loading={running}
-            disabled={!canRun}
-            icon={<ThunderboltOutlined />}
-          >
+          <Button type="primary" onClick={onRun} loading={running} disabled={!canRun} icon={<ThunderboltOutlined />}>
             {getButtonText()}
           </Button>
         </Space>
@@ -107,75 +104,48 @@ export const TrainModelStep = ({
         type={featuresStatus === 'done' ? 'success' : 'warning'}
         showIcon
         style={{ marginBottom: 16 }}
-        message={
-          featuresStatus === 'done'
-            ? '特征提取已完成，可以开始训练。'
-            : '请先完成步骤 2：特征提取。'
-        }
+        message={featuresStatus === 'done' ? t('trainStep.features_done_msg') : t('trainStep.step_required', { n: 2, stage: t('trainStep.feature_extract') })}
       />
 
       <Row gutter={16}>
         <Col span={12}>
           <div style={{ marginBottom: 24 }}>
             <div style={{ marginBottom: 8 }}>
-              <Text>总训练轮数：{config.totalEpoch}</Text>
+              <Text>{t('trainStep.total_epochs_value', { n: config.totalEpoch })}</Text>
             </div>
-            <Slider
-              value={config.totalEpoch}
-              onChange={(value) => onConfigChange({ totalEpoch: value })}
-              min={10}
-              max={1000}
-              step={10}
-              disabled={running}
-            />
+            <Slider value={config.totalEpoch} onChange={(value) => onConfigChange({ totalEpoch: value })} min={10} max={1000} step={10} disabled={running} />
           </div>
         </Col>
 
         <Col span={12}>
           <div style={{ marginBottom: 24 }}>
             <div style={{ marginBottom: 8 }}>
-              <Text>保存频率：每 {config.saveEpoch} 轮</Text>
+              <Text>{t('trainStep.save_every_value', { n: config.saveEpoch })}</Text>
             </div>
-            <Slider
-              value={config.saveEpoch}
-              onChange={(value) => onConfigChange({ saveEpoch: value })}
-              min={5}
-              max={100}
-              step={5}
-              disabled={running}
-            />
+            <Slider value={config.saveEpoch} onChange={(value) => onConfigChange({ saveEpoch: value })} min={5} max={100} step={5} disabled={running} />
           </div>
         </Col>
-
       </Row>
 
       {usage && (
         <Text type="secondary" style={{ fontSize: 12 }}>
-          本步产出：{formatBytes(usage.train)}
+          {t('trainStep.step_output', { size: formatBytes(usage.train) })}
         </Text>
       )}
 
       <Collapse ghost style={{ marginTop: 8 }}>
-        <Collapse.Panel header="高级设置" key="advanced">
+        <Collapse.Panel header={t('trainStep.advanced_settings')} key="advanced">
           <Row gutter={[24, 16]}>
             <Col span={12}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Text>仅保留最新 ckpt</Text>
-                <Switch
-                  checked={config.ifSaveLatest}
-                  onChange={(checked) => onConfigChange({ ifSaveLatest: checked })}
-                  disabled={featuresStatus !== 'done' || running}
-                />
+                <Text>{t('trainStep.save_latest_only')}</Text>
+                <Switch checked={config.ifSaveLatest} onChange={(checked) => onConfigChange({ ifSaveLatest: checked })} disabled={featuresStatus !== 'done' || running} />
               </div>
             </Col>
             <Col span={12}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Text>每次保存到 weights</Text>
-                <Switch
-                  checked={config.ifSaveEveryWeights}
-                  onChange={(checked) => onConfigChange({ ifSaveEveryWeights: checked })}
-                  disabled={featuresStatus !== 'done' || running}
-                />
+                <Text>{t('trainStep.save_every_weights')}</Text>
+                <Switch checked={config.ifSaveEveryWeights} onChange={(checked) => onConfigChange({ ifSaveEveryWeights: checked })} disabled={featuresStatus !== 'done' || running} />
               </div>
             </Col>
           </Row>
@@ -186,29 +156,24 @@ export const TrainModelStep = ({
         <Col>
           <Space>
             <ApartmentOutlined />
-            <Text strong>步骤 4：构建特征索引</Text>
-            <Tag color={statusColorMap[indexStatus]}>{statusTextMap[indexStatus]}</Tag>
+            <Text strong>{t('trainStep.step_title', { n: 4, stage: t('train.build_index') })}</Text>
+            <Tag color={statusColorMap[indexStatus]}>{t(statusTextKeyMap[indexStatus])}</Tag>
           </Space>
           <br />
           <Text type="secondary" style={{ fontSize: 12 }}>
-            训练完成后需构建特征索引才能用于声音转换。可手动点击触发。
+            {t('trainStep.index_tip_manual', { tip: t('train.index_tip') })}
           </Text>
           {usage && (
             <>
               <br />
               <Text type="secondary" style={{ fontSize: 12 }}>
-                本步产出：{formatBytes(usage.index)}
+                {t('trainStep.step_output', { size: formatBytes(usage.index) })}
               </Text>
             </>
           )}
         </Col>
         <Col>
-          <Button
-            icon={<ApartmentOutlined />}
-            onClick={onBuildIndex}
-            loading={indexStatus === 'running'}
-            disabled={featuresStatus !== 'done' || running || indexStatus === 'running'}
-          >
+          <Button icon={<ApartmentOutlined />} onClick={onBuildIndex} loading={indexStatus === 'running'} disabled={featuresStatus !== 'done' || running || indexStatus === 'running'}>
             {getIndexButtonText()}
           </Button>
         </Col>

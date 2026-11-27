@@ -1,21 +1,23 @@
 import { Card, Space, Typography, Button } from 'antd'
 import { Link } from 'react-router-dom'
+import { useI18n } from '@/i18n'
 
 const { Text } = Typography
 
 export const NextStepsGuide = () => {
+  const { t } = useI18n()
   return (
-    <Card size="small" title="后续步骤">
+    <Card size="small" title={t('trainStep.next_steps_title')}>
       <Space direction="vertical" size="small">
-        <Text>1. 训练到足够轮次后，先构建特征索引。</Text>
-        <Text>2. 然后去「人声分离」页面，把目标歌曲拆成人声和伴奏。</Text>
-        <Text>3. 最后去「语音转换」页面，将分离出的人声转换成目标音色。</Text>
+        <Text>{t('trainStep.next_step1')}</Text>
+        <Text>{t('trainStep.next_step2')}</Text>
+        <Text>{t('trainStep.next_step3')}</Text>
         <Space wrap>
           <Button>
-            <Link to="/uvr">前往人声分离</Link>
+            <Link to="/uvr">{t('trainStep.go_uvr')}</Link>
           </Button>
           <Button type="link">
-            <Link to="/infer">直接去语音转换</Link>
+            <Link to="/infer">{t('uvr.go_infer')}</Link>
           </Button>
         </Space>
       </Space>

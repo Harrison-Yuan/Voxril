@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { useI18n } from '@/i18n'
 
 interface Props {
   content: string
@@ -16,6 +17,7 @@ function getLineColor(line: string): string {
 }
 
 export default function LogViewer({ content, height = 300 }: Props) {
+  const { t } = useI18n()
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -39,26 +41,28 @@ export default function LogViewer({ content, height = 300 }: Props) {
         border: '1px solid rgba(255,255,255,0.06)',
       }}
     >
-      {lines.length > 0 ? lines.map((line, i) => {
-        const isEpoch = epochPat.test(line)
-        return (
-          <div key={i}>
-            {isEpoch && i > 0 && (
-              <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', margin: '5px 0 3px' }} />
-            )}
-            <div style={{
-              color: getLineColor(line),
-              fontWeight: isEpoch ? 600 : 400,
-              background: isEpoch ? 'rgba(34,197,94,0.05)' : 'transparent',
-              paddingLeft: isEpoch ? 6 : 0,
-              borderRadius: 3,
-            }}>
-              {line || '\u00a0'}
+      {lines.length > 0 ? (
+        lines.map((line, i) => {
+          const isEpoch = epochPat.test(line)
+          return (
+            <div key={i}>
+              {isEpoch && i > 0 && <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', margin: '5px 0 3px' }} />}
+              <div
+                style={{
+                  color: getLineColor(line),
+                  fontWeight: isEpoch ? 600 : 400,
+                  background: isEpoch ? 'rgba(34,197,94,0.05)' : 'transparent',
+                  paddingLeft: isEpoch ? 6 : 0,
+                  borderRadius: 3,
+                }}
+              >
+                {line || '\u00a0'}
+              </div>
             </div>
-          </div>
-        )
-      }) : (
-        <div style={{ color: '#475569', fontSize: 12, fontStyle: 'italic' }}>暂无日志输出</div>
+          )
+        })
+      ) : (
+        <div style={{ color: '#475569', fontSize: 12, fontStyle: 'italic' }}>{t('log.empty')}</div>
       )}
     </div>
   )

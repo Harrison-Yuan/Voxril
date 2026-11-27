@@ -1,3 +1,5 @@
+import { cover, infer, models, settings, shell, train, trainSteps } from './dict'
+
 const en = {
   'app.name': 'Voxril',
 
@@ -326,6 +328,15 @@ const en = {
   'status.failed': 'Failed',
   'status.timeout': 'Timeout',
   'status.please_wait': 'Please wait...',
+
+  // ── Module slices, see i18n/dict/<module>.ts ──
+  ...train.en,
+  ...trainSteps.en,
+  ...models.en,
+  ...cover.en,
+  ...infer.en,
+  ...settings.en,
+  ...shell.en,
 }
 
 export default en

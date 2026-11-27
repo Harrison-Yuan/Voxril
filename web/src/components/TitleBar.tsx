@@ -118,9 +118,9 @@ export default function TitleBar() {
             alignItems: 'center',
           }}
         >
-          <WindowButton color="#ff5f57" onClick={handleClose} label="关闭" />
-          <WindowButton color="#febc2e" onClick={handleMinimize} label="最小化" />
-          <WindowButton color="#28c840" onClick={handleMaximize} label={maximized ? '还原' : '最大化'} />
+          <WindowButton color="#ff5f57" onClick={handleClose} label={t('common.close')} icon="✕" />
+          <WindowButton color="#febc2e" onClick={handleMinimize} label={t('shell.win_minimize')} icon="─" />
+          <WindowButton color="#28c840" onClick={handleMaximize} label={maximized ? t('shell.win_restore') : t('shell.win_maximize')} icon="▢" />
         </div>
       )}
 
@@ -211,7 +211,7 @@ export default function TitleBar() {
   )
 }
 
-function WindowButton({ color, onClick, label }: { color: string; onClick: () => void; label: string }) {
+function WindowButton({ color, onClick, label, icon }: { color: string; onClick: () => void; label: string; icon: string }) {
   const [hover, setHover] = useState(false)
   return (
     <div
@@ -236,7 +236,7 @@ function WindowButton({ color, onClick, label }: { color: string; onClick: () =>
         transition: 'opacity 0.1s',
       }}
     >
-      {hover && (label === '关闭' ? '✕' : label === '最小化' ? '─' : '▢')}
+      {hover && icon}
     </div>
   )
 }

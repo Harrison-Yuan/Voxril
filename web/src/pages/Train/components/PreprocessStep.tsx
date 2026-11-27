@@ -4,6 +4,7 @@ import type { WorkflowStage } from '@/store/trainStore'
 import type { ExperimentConfig } from '../hooks/useExperimentConfig'
 import type { RunUsage } from '../services/trainApi'
 import { formatBytes } from '@/lib/formatBytes'
+import { useI18n } from '@/i18n'
 
 const { Text } = Typography
 
@@ -21,13 +22,14 @@ interface PreprocessStepProps {
   onRun: () => void
 }
 
-const statusTextMap: Record<WorkflowStage, string> = {
-  pending: '未开始',
-  running: '进行中',
-  done: '已完成',
-  error: '失败',
-  stale: '需重跑',
-  reclaimed: '已回收',
+/** 阶段状态 → 文案键，渲染时再经 t() 取词，切换语言才会刷新 */
+const statusTextKeyMap: Record<WorkflowStage, string> = {
+  pending: 'common.pending',
+  running: 'common.running',
+  done: 'common.done',
+  error: 'common.failed',
+  stale: 'trainStep.status_stale',
+  reclaimed: 'trainStep.status_reclaimed',
 }
 
 const statusColorMap: Record<WorkflowStage, string> = {
@@ -52,58 +54,31 @@ export const PreprocessStep = ({
   onSelectDirectory,
   onRun,
 }: PreprocessStepProps) => {
+  const { t } = useI18n()
   return (
     <Card
       title={
         <Space>
-          <Text>步骤 1：数据预处理</Text>
-          <Tag color={statusColorMap[status]}>{statusTextMap[status]}</Tag>
+          <Text>{t('trainStep.step_title', { n: 1, stage: t('train.preprocess') })}</Text>
+          <Tag color={statusColorMap[status]}>{t(statusTextKeyMap[status])}</Tag>
         </Space>
       }
       size="small"
       extra={
-        <Button
-          type="primary"
-          onClick={onRun}
-          loading={running}
-          disabled={!canRun}
-          icon={<DatabaseOutlined />}
-        >
-          {status === 'done' ? '重新执行数据预处理' : '开始数据预处理'}
+        <Button type="primary" onClick={onRun} loading={running} disabled={!canRun} icon={<DatabaseOutlined />}>
+          {status === 'done' ? t('trainStep.rerun_preprocess') : t('trainStep.start_preprocess')}
         </Button>
       }
     >
-      {!config.trainsetDir && (
-        <Alert
-          type="warning"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="请先选择训练集路径"
-          description="点击「训练集路径」输入框右侧的「选择文件夹」按钮，选择包含训练音频文件的文件夹。"
-        />
-      )}
-      
+      {!config.trainsetDir && <Alert type="warning" showIcon style={{ marginBottom: 16 }} message={t('trainStep.select_trainset_required')} description={t('trainStep.select_trainset_desc')} />}
+
       {config.trainsetDir && (
-        <Alert
-          type="success"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="训练集路径已配置"
-          description={`当前路径：${config.trainsetDir}`}
-        />
+        <Alert type="success" showIcon style={{ marginBottom: 16 }} message={t('trainStep.trainset_configured')} description={t('trainStep.current_path', { path: config.trainsetDir })} />
       )}
 
       <Row gutter={16}>
         <Col span={12}>
-          <Form.Item
-            label="实验名称"
-            required
-            extra={
-              hasStartedWorkflow
-                ? "切换实验将放弃当前进度，加载新实验的配置"
-                : "可下拉切换已有实验，也可以直接输入新名称"
-            }
-          >
+          <Form.Item label={t('train.exp_name')} required extra={hasStartedWorkflow ? t('trainStep.exp_switch_extra') : t('trainStep.exp_input_extra')}>
             <AutoComplete
               value={config.expDir}
               onChange={(value) => {
@@ -113,10 +88,12 @@ export const PreprocessStep = ({
                 onExpDirChange(value)
               }}
               options={_experimentOptions.map((name) => ({ value: name }))}
-              placeholder="选择已有实验或输入新名称"
+              placeholder={t('trainStep.exp_placeholder')}
               disabled={running}
               filterOption={(inputValue, option) =>
-                String(option?.value ?? '').toUpperCase().includes(String(inputValue).toUpperCase())
+                String(option?.value ?? '')
+                  .toUpperCase()
+                  .includes(String(inputValue).toUpperCase())
               }
             >
               <Input />
@@ -125,21 +102,16 @@ export const PreprocessStep = ({
         </Col>
 
         <Col span={12}>
-          <Form.Item 
-            label="训练集路径" 
-            required 
-            extra="点击右侧按钮选择包含训练音频的文件夹。"
-            validateStatus={!config.trainsetDir ? 'warning' : 'success'}
-          >
+          <Form.Item label={t('train.model_dir')} required extra={t('trainStep.trainset_extra')} validateStatus={!config.trainsetDir ? 'warning' : 'success'}>
             <Input
               value={config.trainsetDir}
               onChange={(e) => onConfigChange({ trainsetDir: e.target.value })}
               disabled={running}
-              placeholder="请点击右侧按钮选择文件夹"
+              placeholder={t('trainStep.trainset_placeholder')}
               status={!config.trainsetDir ? 'warning' : undefined}
               addonAfter={
                 <Button type="link" size="small" disabled={running} onClick={onSelectDirectory}>
-                  选择文件夹
+                  {t('trainStep.select_folder')}
                 </Button>
               }
             />
@@ -147,55 +119,45 @@ export const PreprocessStep = ({
         </Col>
 
         <Col span={12}>
-          <Form.Item label="目标采样率" extra="采样率越高音质越好，但训练时间更长。40k适合大多数场景。">
+          <Form.Item label={t('train.sr')} extra={t('trainStep.sr_extra')}>
             <Select
               value={config.sr}
               onChange={(value) => onConfigChange({ sr: value })}
               disabled={running}
               options={[
-                { value: '32k', label: '32k（说话/播客）' },
-                { value: '40k', label: '40k（推荐/歌唱）' },
-                { value: '48k', label: '48k（高质量）' },
+                { value: '32k', label: t('trainStep.sr_32k') },
+                { value: '40k', label: t('trainStep.sr_40k') },
+                { value: '48k', label: t('trainStep.sr_48k') },
               ]}
             />
           </Form.Item>
         </Col>
 
         <Col span={12}>
-          <Form.Item label="音高提取算法" extra="RMVPE 效果最佳（ONNX 加速）；Harvest 低音更好但慢；PM 最快。">
+          <Form.Item label={t('train.f0_method')} extra={t('trainStep.f0_method_extra')}>
             <Select
               value={config.f0Method}
               onChange={(value) => onConfigChange({ f0Method: value })}
               disabled={running}
               options={[
-                { value: 'rmvpe', label: 'RMVPE（推荐，ONNX）' },
-                { value: 'harvest', label: 'Harvest（低音好）' },
-                { value: 'pm', label: 'PM（最快）' },
+                { value: 'rmvpe', label: t('trainStep.f0_rmvpe') },
+                { value: 'harvest', label: t('trainStep.f0_harvest') },
+                { value: 'pm', label: t('trainStep.f0_pm') },
               ]}
             />
           </Form.Item>
         </Col>
 
         <Col span={12}>
-          <Form.Item
-            label={`并行进程数：${config.npProcess}`}
-            extra="增加进程数可加快处理速度。"
-          >
-            <Slider
-              value={config.npProcess}
-              onChange={(value) => onConfigChange({ npProcess: value })}
-              min={1}
-              max={8}
-              step={1}
-              disabled={running}
-            />
+          <Form.Item label={t('trainStep.np_process_label', { n: config.npProcess })} extra={t('trainStep.np_process_extra')}>
+            <Slider value={config.npProcess} onChange={(value) => onConfigChange({ npProcess: value })} min={1} max={8} step={1} disabled={running} />
           </Form.Item>
         </Col>
       </Row>
 
       {usage && (
         <Text type="secondary" style={{ fontSize: 12 }}>
-          本步产出：{formatBytes(usage.preprocess)}
+          {t('trainStep.step_output', { size: formatBytes(usage.preprocess) })}
         </Text>
       )}
     </Card>

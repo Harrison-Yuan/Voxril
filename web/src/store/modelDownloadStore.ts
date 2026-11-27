@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { listen } from '@tauri-apps/api/event'
+import { t } from '@/i18n/runtime'
 
 export interface DownloadItem {
   id: string
@@ -31,7 +32,7 @@ export const useModelDownloadStore = create<ModelDownloadState>((set, get) => ({
 
   startDownload: (id: string, label?: string) => set(s => {
     if (s.downloads.some(d => d.id === id)) return s
-    return { downloads: [...s.downloads, { id, label: label || id, log: '准备下载...', percent: -1, downloadedMb: 0 }] }
+    return { downloads: [...s.downloads, { id, label: label || id, log: t('shell.download_preparing'), percent: -1, downloadedMb: 0 }] }
   }),
 
   updateLog: (id: string, log: string) => set(s => ({
@@ -79,6 +80,8 @@ export function initModelDownloadSync(): Promise<void> {
       const percent = pctMatch ? parseInt(pctMatch[1], 10) : -1
       const mb = mbMatch ? parseFloat(mbMatch[1]) : 0
 
+      // '下载完成' 是后端（tools/check_download_models.py 打印的日志）协议字面量，
+      // 只用于匹配原始输出，不参与 i18n，改成 t() 会让进度判定失效
       if (message.includes('下载完成')) {
         store.updateProgress(modelId, 100, mb)
         store.finishDownload(modelId)

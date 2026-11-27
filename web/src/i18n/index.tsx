@@ -1,44 +1,27 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
-import zh from './zh'
-import en from './en'
+import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
+import { getLang, translate, type Lang, type MsgParams } from './runtime'
 
-export type MessageKey = keyof typeof zh
-export type Messages = Record<MessageKey, string>
-export type Lang = 'zh' | 'en'
-
-const messages: Record<Lang, Messages> = { zh, en }
-
-function detectLang(): Lang {
-  const saved = localStorage.getItem('voxril-lang') as Lang | null
-  if (saved === 'zh' || saved === 'en') return saved
-  return navigator.language.startsWith('zh') ? 'zh' : 'en'
-}
+export type { Lang, MessageKey, Messages, MsgParams } from './runtime'
 
 interface I18nContextValue {
   lang: Lang
   setLang: (lang: Lang) => void
-  t: (key: string, fallback?: string) => string
+  t: (key: string, params?: MsgParams) => string
 }
 
 const I18nContext = createContext<I18nContextValue | null>(null)
 
 export function LocaleProvider({ children }: { children: ReactNode }) {
-  const [lang, setLangState] = useState<Lang>(detectLang)
+  const [lang, setLangState] = useState<Lang>(getLang)
 
   const setLang = useCallback((newLang: Lang) => {
     setLangState(newLang)
     localStorage.setItem('voxril-lang', newLang)
   }, [])
 
-  const t = useCallback((key: string, fallback?: string): string => {
-    return (messages[lang] as Record<string, string>)[key] || fallback || key
-  }, [lang])
+  const t = useCallback((key: string, params?: MsgParams): string => translate(lang, key, params), [lang])
 
-  return (
-    <I18nContext.Provider value={{ lang, setLang, t }}>
-      {children}
-    </I18nContext.Provider>
-  )
+  return <I18nContext.Provider value={{ lang, setLang, t }}>{children}</I18nContext.Provider>
 }
 
 export function useI18n() {

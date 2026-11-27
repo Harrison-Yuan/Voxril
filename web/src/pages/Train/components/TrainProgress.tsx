@@ -1,6 +1,7 @@
 import { Card, Row, Col, Progress, Statistic, Typography } from 'antd'
 import type { TrainProgressState, StreamStatus } from '../hooks/useTrainProgress'
 import type { WorkflowStage } from '@/store/trainStore'
+import { useI18n } from '@/i18n'
 
 const { Text } = Typography
 
@@ -14,15 +15,8 @@ interface TrainProgressProps {
   trainProgressStreamStatus: StreamStatus
 }
 
-export const TrainProgress = ({
-  trainProgress,
-  trainStatus,
-  indexStatus,
-  trainEpoch,
-  totalEpoch,
-  checkpointPath,
-  trainProgressStreamStatus,
-}: TrainProgressProps) => {
+export const TrainProgress = ({ trainProgress, trainStatus, indexStatus, trainEpoch, totalEpoch, checkpointPath, trainProgressStreamStatus }: TrainProgressProps) => {
+  const { t } = useI18n()
   const getProgressStatus = () => {
     if (indexStatus === 'running') return 'active'
     if (trainStatus === 'error' || indexStatus === 'error') return 'exception'
@@ -36,50 +30,50 @@ export const TrainProgress = ({
     const hours = Math.floor(seconds / 3600)
     const minutes = Math.floor((seconds % 3600) / 60)
     if (hours > 0) {
-      return `约 ${hours} 小时 ${minutes} 分钟`
+      return t('trainStep.eta_hm', { hours, minutes })
     }
-    return `约 ${minutes} 分钟`
+    return t('trainStep.eta_m', { minutes })
   }
 
   const getProgressText = () => {
-    if (indexStatus === 'running') return '正在训练特征索引...'
-    if (indexStatus === 'done') return '训练流程全部完成！'
-    
+    if (indexStatus === 'running') return t('trainStep.index_building')
+    if (indexStatus === 'done') return t('trainStep.flow_done')
+
     if (trainStatus === 'running') {
       const parts: string[] = []
-      
+
       if (trainProgress.latestLoss) {
         parts.push(trainProgress.latestLoss)
       }
-      
+
       if (trainProgress.estimatedSeconds && trainProgress.estimatedSeconds > 0) {
         const timeStr = formatTime(trainProgress.estimatedSeconds)
         if (timeStr) {
-          parts.push(`预计剩余时间: ${timeStr}`)
+          parts.push(`${t('train.eta')}: ${timeStr}`)
         }
       }
-      
+
       if (trainProgress.avgEpochTime && trainProgress.avgEpochTime > 0) {
         const avgMinutes = Math.floor(trainProgress.avgEpochTime / 60)
         const avgSeconds = trainProgress.avgEpochTime % 60
-        parts.push(`平均每轮: ${avgMinutes}分${avgSeconds}秒`)
+        parts.push(t('trainStep.avg_epoch_time', { minutes: avgMinutes, seconds: avgSeconds }))
       }
-      
+
       if (parts.length > 0) {
         return parts.join(' | ')
       }
-      
+
       const hints = {
-        connecting: '进度流连接中，等待训练进度...',
-        reconnecting: '进度流中断，正在自动重连...',
-        connected: '进度流已连接',
-        idle: '进度流未连接',
+        connecting: t('trainStep.progress_stream_connecting'),
+        reconnecting: t('trainStep.progress_stream_reconnecting'),
+        connected: t('trainStep.progress_stream_connected'),
+        idle: t('trainStep.progress_stream_idle'),
       }
       return hints[trainProgressStreamStatus]
     }
 
-    if (trainStatus === 'done') return '模型训练完成，准备训练索引'
-    return '等待训练开始'
+    if (trainStatus === 'done') return t('trainStep.train_done_index_pending')
+    return t('trainStep.wait_train_start')
   }
 
   const getHintText = () => {
@@ -87,33 +81,27 @@ export const TrainProgress = ({
 
     if (trainEpoch > 0) {
       if (trainStatus === 'running') {
-        return '训练完成后将自动训练特征索引。'
+        return t('trainStep.hint_running')
       }
       if (trainStatus === 'done') {
-        return '训练已完成，可以训练特征索引。'
+        return t('trainStep.hint_train_done')
       }
-      return '已有训练产物，可以继续训练或训练索引。'
+      return t('trainStep.hint_existing_artifacts')
     }
 
     return null
   }
 
-  const currentPercent = Math.min(
-    100,
-    trainProgress.currentPercent || (trainEpoch / Math.max(totalEpoch, 1)) * 100 || 0
-  )
+  const currentPercent = Math.min(100, trainProgress.currentPercent || (trainEpoch / Math.max(totalEpoch, 1)) * 100 || 0)
 
   return (
-    <Card size="small" title="训练进度">
+    <Card size="small" title={t('trainStep.progress_title')}>
       <Row gutter={16} align="middle">
         <Col span={8}>
-          <Statistic
-            title="当前轮次"
-            value={`${trainProgress.currentEpoch || trainEpoch || 0} / ${totalEpoch}`}
-          />
+          <Statistic title={t('train.current_epoch')} value={`${trainProgress.currentEpoch || trainEpoch || 0} / ${totalEpoch}`} />
           {checkpointPath && (
             <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
-              检查点: {checkpointPath.split('/').pop() || checkpointPath}
+              {t('trainStep.checkpoint', { name: checkpointPath.split('/').pop() || checkpointPath })}
             </Text>
           )}
         </Col>

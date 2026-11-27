@@ -1,11 +1,7 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Typography, Space, Button, Table, Modal, Input, message, Progress, Tag, Alert, Tabs } from 'antd'
 import { listen } from '@tauri-apps/api/event'
-import {
-  AppstoreOutlined, DownloadOutlined, DeleteOutlined,
-  CloudDownloadOutlined,
-  CheckCircleOutlined, CloseCircleOutlined,
-} from '@ant-design/icons'
+import { AppstoreOutlined, DownloadOutlined, DeleteOutlined, CloudDownloadOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
 import { inferApi } from '@/api/infer'
 import type { BaseModelStatus as BaseModelStatusType } from '@/api/infer'
 import { workspaceApi } from '@/api/workspace'
@@ -14,6 +10,7 @@ import { trainApi } from '@/pages/Train/services/trainApi'
 import type { ExperimentSummary } from '@/pages/Train/services/trainApi'
 import { BatchTable, formatRunDate } from '@/pages/Train/components/BatchTable'
 import { formatBytes } from '@/lib/formatBytes'
+import { useI18n } from '@/i18n'
 
 const { Title, Text } = Typography
 
@@ -28,6 +25,8 @@ interface ModelItem {
   icon: string
   statusText: string
   statusColor: string
+  /** 仅基础依赖：说明文案的 i18n 键 */
+  descKey?: string
   /** 仅声音模型：批次摘要副标题 */
   subtitle?: string
 }
@@ -73,19 +72,21 @@ function summarizeVoices(list: string[]): VoiceModelInfo[] {
   return Array.from(map.values()).sort((a, b) => a.voice.localeCompare(b.voice))
 }
 
-const BASE_MODEL_META: Record<string, { name: string; icon: string; desc: string }> = {
-  hubert: { name: 'ContentVec (HuBERT 特征提取)', icon: '🧠', desc: '训练和转换必需，提取人声深层特征' },
-  rmvpe: { name: 'RMVPE (F0 音高提取)', icon: '🎵', desc: '训练和转换必需，预测 F0 音高曲线' },
-  bs_roformer: { name: 'BS-RoFormer (人声/伴奏分离)', icon: '🎤', desc: 'UVR 分离必需，将伴奏与人声分离' },
-  inst_main: { name: 'MDX-Net Main Vocals (主唱提取)', icon: '🎙️', desc: '仅提取主唱人声，过滤和声与背景音' },
-  karaoke: { name: 'MDX-Net Karaoke 2 (去和声)', icon: '🎶', desc: '去除伴奏同时剥离背景和声' },
-  voc_ft: { name: 'MDX-Net Voc FT (经典提取)', icon: '🎧', desc: '经典 MDX-Net 人声提取，稳定性好' },
-  kim_vocal: { name: 'Kim Vocal 2 (清晰人声)', icon: '🎼', desc: '人声清晰度优化的 MDX-Net 模型' },
-  f0G40k: { name: 'RVC v2 Generator f0G40k (预训练)', icon: '🧬', desc: '训练必需，提供 Generator 初始权重' },
-  f0D40k: { name: 'RVC v2 Discriminator f0D40k (预训练)', icon: '🛡️', desc: '训练必需，提供 Discriminator 初始权重' },
+/** 基础依赖模型的静态元信息，name/desc 存 i18n 键，渲染处再 t()。 */
+const BASE_MODEL_META: Record<string, { nameKey: string; icon: string; descKey: string }> = {
+  hubert: { nameKey: 'dep.hubert.name', icon: '🧠', descKey: 'dep.hubert.desc' },
+  rmvpe: { nameKey: 'dep.rmvpe.name', icon: '🎵', descKey: 'dep.rmvpe.desc' },
+  bs_roformer: { nameKey: 'dep.bs_roformer.name', icon: '🎤', descKey: 'dep.bs_roformer.desc' },
+  inst_main: { nameKey: 'dep.inst_main.name', icon: '🎙️', descKey: 'dep.inst_main.desc' },
+  karaoke: { nameKey: 'dep.karaoke.name', icon: '🎶', descKey: 'dep.karaoke.desc' },
+  voc_ft: { nameKey: 'dep.voc_ft.name', icon: '🎧', descKey: 'dep.voc_ft.desc' },
+  kim_vocal: { nameKey: 'dep.kim_vocal.name', icon: '🎼', descKey: 'dep.kim_vocal.desc' },
+  f0G40k: { nameKey: 'dep.f0G40k.name', icon: '🧬', descKey: 'dep.f0G40k.desc' },
+  f0D40k: { nameKey: 'dep.f0D40k.name', icon: '🛡️', descKey: 'dep.f0D40k.desc' },
 }
 
 export default function ModelsPage() {
+  const { t } = useI18n()
   const [voiceInfos, setVoiceInfos] = useState<VoiceModelInfo[]>([])
   /** 全部批次摘要，用于按声音展开批次明细。 */
   const [experiments, setExperiments] = useState<ExperimentSummary[]>([])
@@ -103,13 +104,22 @@ export default function ModelsPage() {
   const [importLog, setImportLog] = useState('')
   const [importPercent, setImportPercent] = useState(0)
 
-  const isDownloading = useModelDownloadStore(s => s.isDownloading)
-  const startDownload = useModelDownloadStore(s => s.startDownload)
-  const finishDownload = useModelDownloadStore(s => s.finishDownload)
-  const getDownloadItem = useModelDownloadStore(s => s.getDownloadItem)
-  const completedAt = useModelDownloadStore(s => s.completedAt)
+  const isDownloading = useModelDownloadStore((s) => s.isDownloading)
+  const startDownload = useModelDownloadStore((s) => s.startDownload)
+  const finishDownload = useModelDownloadStore((s) => s.finishDownload)
+  const getDownloadItem = useModelDownloadStore((s) => s.getDownloadItem)
+  const completedAt = useModelDownloadStore((s) => s.completedAt)
   // Subscribe to all downloads so the table re-renders on progress changes
-  void useModelDownloadStore(s => s.downloads)
+  void useModelDownloadStore((s) => s.downloads)
+
+  /** 基础依赖模型的展示名（用当前语言即时取词）。 */
+  const baseModelName = useCallback(
+    (id: string) => {
+      const meta = BASE_MODEL_META[id]
+      return meta ? t(meta.nameKey) : id
+    },
+    [t],
+  )
 
   useEffect(() => {
     loadAll()
@@ -118,14 +128,20 @@ export default function ModelsPage() {
   // 启动自检整批下载结束后刷新模型状态（进度本身由全局订阅实时同步）
   useEffect(() => {
     let unlisten: (() => void) | undefined
-    listen('model-download-done', () => { void loadAll() }).then(fn => { unlisten = fn })
+    listen('model-download-done', () => {
+      void loadAll()
+    }).then((fn) => {
+      unlisten = fn
+    })
     return () => unlisten?.()
   }, [])
 
   // 单个模型下载完成后静默刷新一次状态，避免表格闪烁
   useEffect(() => {
     if (!completedAt) return
-    const timer = setTimeout(() => { void loadAll(true) }, 600)
+    const timer = setTimeout(() => {
+      void loadAll(true)
+    }, 600)
     return () => clearTimeout(timer)
   }, [completedAt])
 
@@ -149,9 +165,9 @@ export default function ModelsPage() {
 
       // 进入页面时若已有下载在跑（如启动自检），直接恢复其进度显示
       const active = await inferApi.getActiveModelDownload().catch(() => null)
-      if (active) startDownload(active, BASE_MODEL_META[active]?.name || active)
+      if (active) startDownload(active, baseModelName(active))
     } catch {
-      if (!silent) message.error('加载模型列表失败')
+      if (!silent) message.error(t('models.load_list_failed'))
     } finally {
       if (!silent) {
         setLoading(false)
@@ -185,74 +201,75 @@ export default function ModelsPage() {
 
     // Base dependency models
     for (const bm of baseModels) {
-        // 按 id 去重，防止后端返回重复项
-        if (items.some(i => i.key === `base-${bm.id}`)) continue
-        const meta = BASE_MODEL_META[bm.id]
-        items.push({
+      // 按 id 去重，防止后端返回重复项
+      if (items.some((i) => i.key === `base-${bm.id}`)) continue
+      const meta = BASE_MODEL_META[bm.id]
+      items.push({
         key: `base-${bm.id}`,
         type: 'base',
-        category: '基础依赖',
-        name: meta?.name || bm.id,
+        category: 'models.base',
+        name: baseModelName(bm.id),
         path: bm.exists ? `${bm.id}` : '',
         exists: bm.exists,
         size_mb: bm.size_mb,
         icon: meta?.icon || '📦',
-        statusText: bm.exists ? `已就绪 (${bm.size_mb.toFixed(0)}MB)` : '未下载',
+        descKey: meta?.descKey,
+        statusText: bm.exists ? t('models.size_hint', { mb: bm.size_mb.toFixed(0) }) : t('models.status_missing'),
         statusColor: bm.exists ? 'success' : 'error',
       })
     }
 
     // User voice models：归档权重所在声音 + 仅有批次、尚未归档的声音
-    const voiceNames = new Set(voiceInfos.map(info => info.voice))
+    const voiceNames = new Set(voiceInfos.map((info) => info.voice))
     for (const voice of batchesByVoice.keys()) voiceNames.add(voice)
 
     for (const voice of Array.from(voiceNames).sort((a, b) => a.localeCompare(b))) {
-      const info = voiceInfos.find(i => i.voice === voice)
+      const info = voiceInfos.find((i) => i.voice === voice)
       const batchCount = batchesByVoice.get(voice)?.length ?? info?.batches.length ?? 0
       const details: string[] = []
-      details.push(batchCount > 0 ? `批次 ${batchCount}` : '无归档批次')
-      if (info?.latestEpoch != null) details.push(`最新 epoch ${info.latestEpoch}`)
-      if (info?.hasLegacy) details.push('含旧版')
+      details.push(batchCount > 0 ? t('models.batch_count', { n: batchCount }) : t('models.no_archived_batch'))
+      if (info?.latestEpoch != null) details.push(t('models.latest_epoch', { n: info.latestEpoch }))
+      if (info?.hasLegacy) details.push(t('models.has_legacy'))
       items.push({
         key: `voice-${voice}`,
         type: 'voice',
-        category: '声音模型',
+        category: 'models.voice',
         name: voice,
         path: voice,
         exists: true,
         size_mb: 0,
         icon: '🗣️',
-        statusText: '已安装',
+        statusText: t('models.installed'),
         statusColor: 'success',
         subtitle: details.join(' · '),
       })
     }
 
     return items
-  }, [baseModels, voiceInfos, batchesByVoice])
+  }, [baseModels, voiceInfos, batchesByVoice, t, baseModelName])
 
   const filteredModels = useMemo(() => {
     if (activeTab === 'all') return allModels
-    if (activeTab === 'base') return allModels.filter(m => m.type === 'base')
-    return allModels.filter(m => m.type === 'voice')
+    if (activeTab === 'base') return allModels.filter((m) => m.type === 'base')
+    return allModels.filter((m) => m.type === 'voice')
   }, [allModels, activeTab])
 
   const handleDeleteVoice = (modelName: string) => {
     Modal.confirm({
-      title: '确认删除声音模型',
-      content: `确定要彻底删除声音模型 "${modelName}" 吗？此操作不可恢复。`,
-      okText: '确认删除',
+      title: t('models.delete_voice_confirm'),
+      content: t('models.delete_voice_desc', { name: modelName }),
+      okText: t('models.confirm_delete'),
       okType: 'danger',
-      cancelText: '取消',
+      cancelText: t('common.cancel'),
       onOk: async () => {
         try {
           await inferApi.deleteModel(modelName)
-          message.success('声音模型已删除')
+          message.success(t('models.voice_deleted'))
           loadAll()
         } catch (e) {
-          message.error(`删除失败: ${String(e)}`)
+          message.error(t('models.delete_failed', { msg: String(e) }))
         }
-      }
+      },
     })
   }
 
@@ -260,55 +277,63 @@ export default function ModelsPage() {
   const handleDeleteBatch = (batch: ExperimentSummary) => {
     const qualified = `${batch.voice}/${batch.run_id}`
     Modal.confirm({
-      title: '确认删除批次',
+      title: t('models.delete_batch_confirm'),
       content: (
         <Space orientation="vertical" size={8}>
-          <Text>确定要删除批次 <Text strong>"{formatRunDate(batch.run_id)}"</Text>（{qualified}）吗？</Text>
-          <Text type="secondary">将删除工作位、归档权重与批次清单，共 {formatBytes(batch.bytes)}。</Text>
-          <Text type="secondary">产物会先移入回收站，7 天后自动清除。已被成品引用的批次无法删除。</Text>
+          <Text>
+            {t('models.delete_batch_prefix')} <Text strong>"{formatRunDate(batch.run_id)}"</Text>
+            {t('models.delete_batch_suffix', { qualified })}
+          </Text>
+          <Text type="secondary">{t('models.delete_batch_size', { size: formatBytes(batch.bytes) })}</Text>
+          <Text type="secondary">{t('models.delete_batch_trash')}</Text>
         </Space>
       ),
-      okText: '确认删除',
+      okText: t('models.confirm_delete'),
       okType: 'danger',
-      cancelText: '取消',
+      cancelText: t('common.cancel'),
       onOk: async () => {
         const result = await trainApi.purgeRun(qualified)
         if (!result.ok) {
           message.error({ content: result.message, duration: 8 })
           return
         }
-        message.success({ content: `已删除批次，${formatBytes(result.freedBytes)} 移入回收站`, duration: 6 })
+        message.success({ content: t('models.batch_deleted', { size: formatBytes(result.freedBytes) }), duration: 6 })
         await loadAll()
       },
     })
   }
 
   const handleDeleteBase = (modelId: string) => {
-    const meta = BASE_MODEL_META[modelId]
     Modal.confirm({
-      title: '确认删除基础模型',
-      content: `确定要删除 "${meta?.name || modelId}" 吗？需要时可随时重新下载。`,
-      okText: '确认删除',
+      title: t('models.download_confirm'),
+      content: t('models.delete_base_q', { name: baseModelName(modelId), tail: t('models.download_confirm_desc') }),
+      okText: t('models.confirm_delete'),
       okType: 'danger',
-      cancelText: '取消',
+      cancelText: t('common.cancel'),
       onOk: async () => {
         try {
           await inferApi.deleteBaseModel(modelId)
-          message.success('基础模型已删除')
+          message.success(t('models.base_deleted'))
           loadAll()
         } catch (e) {
-          message.error(`删除失败: ${String(e)}`)
+          message.error(t('models.delete_failed', { msg: String(e) }))
         }
-      }
+      },
     })
   }
 
   const handleImport = async () => {
-    if (!importSource.trim()) { message.warning('请输入模型下载链接或本地路径'); return }
-    if (!importName.trim()) { message.warning('请输入模型名称'); return }
+    if (!importSource.trim()) {
+      message.warning(t('models.source_required'))
+      return
+    }
+    if (!importName.trim()) {
+      message.warning(t('models.name_required'))
+      return
+    }
 
     setImporting(true)
-    setImportLog('准备导入...')
+    setImportLog(t('models.preparing_import'))
     setImportPercent(0)
 
     const res = await inferApi.importModel(importSource.trim(), importName.trim(), (prog) => {
@@ -318,13 +343,13 @@ export default function ModelsPage() {
 
     setImporting(false)
     if (res.ok) {
-      message.success('模型导入成功！')
+      message.success(t('models.import_success'))
       setIsImportVisible(false)
       setImportSource('')
       setImportName('')
       loadAll()
     } else {
-      message.error(`导入失败: ${res.message}`)
+      message.error(t('models.import_failed', { msg: res.message }))
     }
   }
 
@@ -333,7 +358,7 @@ export default function ModelsPage() {
       const { open } = await import('@tauri-apps/plugin-dialog')
       const file = await open({
         multiple: false,
-        filters: [{ name: 'Model Files', extensions: ['zip', 'pth'] }]
+        filters: [{ name: 'Model Files', extensions: ['zip', 'pth'] }],
       })
       if (file && typeof file === 'string') {
         setImportSource(file)
@@ -343,57 +368,57 @@ export default function ModelsPage() {
         }
       }
     } catch (e) {
-      message.error(`选择文件失败: ${String(e)}`)
+      message.error(t('models.pick_file_failed', { msg: String(e) }))
     }
   }
 
   const handleDownloadBase = async (modelId: string) => {
     if (isDownloading(modelId)) return
-    const name = BASE_MODEL_META[modelId]?.name || modelId
+    const name = baseModelName(modelId)
     startDownload(modelId, name)
     try {
       // 下载进度由全局订阅同步到此模型条目
       const ok = await inferApi.downloadBaseModel(modelId)
       if (ok) {
-        message.success(`${name} 下载完成`)
+        message.success(t('dep.download_done', { name }))
         finishDownload(modelId)
         loadAll()
       } else {
         // ok 为 false 但无具体错误信息，从日志中取最后一条
         const dlItem = getDownloadItem(modelId)
-        const errMsg = dlItem?.log || '未知错误'
-        message.error(`${name} 下载失败: ${errMsg}`)
+        const errMsg = dlItem?.log || t('dep.unknown_error')
+        message.error(t('dep.download_failed', { name, msg: errMsg }))
         finishDownload(modelId)
       }
     } catch (e) {
-      message.error(`${name} 下载失败: ${String(e)}`)
+      message.error(t('dep.download_failed', { name, msg: String(e) }))
       finishDownload(modelId)
     }
   }
 
-  const baseModelMissing = baseModels.some(m => !m.exists)
+  const baseModelMissing = baseModels.some((m) => !m.exists)
 
   const columns = [
     {
-      title: '类型',
+      title: t('models.col_type'),
       dataIndex: 'category',
       key: 'category',
       width: 90,
       render: (cat: string) => (
-        <Tag color={cat === '基础依赖' ? 'blue' : 'green'} style={{ fontSize: 11 }}>
-          {cat}
+        <Tag color={cat === 'models.base' ? 'blue' : 'green'} style={{ fontSize: 11 }}>
+          {t(cat)}
         </Tag>
-      )
+      ),
     },
     {
-      title: '模型',
+      title: t('models.col_model'),
       dataIndex: 'icon',
       key: 'icon',
       width: 50,
-      render: (icon: string) => <span style={{ fontSize: 18 }}>{icon}</span>
+      render: (icon: string) => <span style={{ fontSize: 18 }}>{icon}</span>,
     },
     {
-      title: '名称',
+      title: t('models.col_name'),
       dataIndex: 'name',
       key: 'name',
       render: (name: string, record: ModelItem) => (
@@ -401,29 +426,32 @@ export default function ModelsPage() {
           <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
           {record.type === 'base' && (
             <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', height: 16 }}>
-              {BASE_MODEL_META[record.key.replace('base-', '')]?.desc || ''}
+              {record.descKey ? t(record.descKey) : ''}
             </div>
           )}
           {record.type === 'voice' && record.subtitle && (
-            <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', height: 16 }}>
-              {record.subtitle}
-            </div>
+            <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', height: 16 }}>{record.subtitle}</div>
           )}
         </div>
-      )
+      ),
     },
     {
-      title: '状态',
+      title: t('models.col_status'),
       key: 'status',
       width: 180,
-      render: (_: any, record: ModelItem) => (
-        record.exists
-          ? <Tag icon={<CheckCircleOutlined />} color="success">{record.statusText}</Tag>
-          : <Tag icon={<CloseCircleOutlined />} color="error">{record.statusText}</Tag>
-      )
+      render: (_: any, record: ModelItem) =>
+        record.exists ? (
+          <Tag icon={<CheckCircleOutlined />} color="success">
+            {record.statusText}
+          </Tag>
+        ) : (
+          <Tag icon={<CloseCircleOutlined />} color="error">
+            {record.statusText}
+          </Tag>
+        ),
     },
     {
-      title: '操作',
+      title: t('models.col_action'),
       key: 'action',
       width: 220,
       render: (_: any, record: ModelItem) => {
@@ -431,10 +459,11 @@ export default function ModelsPage() {
           if (record.exists) {
             return (
               <Space>
-                <Button size="small" icon={<CheckCircleOutlined />} disabled>已就绪</Button>
-                <Button size="small" danger type="text" icon={<DeleteOutlined />}
-                  onClick={() => handleDeleteBase(record.key.replace('base-', ''))}>
-                  卸载
+                <Button size="small" icon={<CheckCircleOutlined />} disabled>
+                  {t('models.status_ready')}
+                </Button>
+                <Button size="small" danger type="text" icon={<DeleteOutlined />} onClick={() => handleDeleteBase(record.key.replace('base-', ''))}>
+                  {t('models.uninstall')}
                 </Button>
               </Space>
             )
@@ -443,13 +472,8 @@ export default function ModelsPage() {
           const dlItem = getDownloadItem(modelId)
           return (
             <Space direction="vertical" size={4} style={{ width: '100%' }}>
-              <Button
-                size="small" type="primary"
-                icon={<CloudDownloadOutlined />}
-                loading={isDownloading(modelId)}
-                onClick={() => handleDownloadBase(modelId)}
-              >
-                {isDownloading(modelId) ? '下载中...' : '下载'}
+              <Button size="small" type="primary" icon={<CloudDownloadOutlined />} loading={isDownloading(modelId)} onClick={() => handleDownloadBase(modelId)}>
+                {isDownloading(modelId) ? t('models.status_downloading') : t('common.download')}
               </Button>
               {dlItem && (
                 <div className="action-cell" style={{ lineHeight: '16px', overflow: 'hidden' }}>
@@ -458,10 +482,7 @@ export default function ModelsPage() {
                     size="small"
                     status="active"
                     style={{ marginBottom: 0 }}
-                    format={p => dlItem.downloadedMb > 0
-                      ? `${dlItem.downloadedMb.toFixed(0)} MB${p !== undefined ? ` (${p}%)` : ''}`
-                      : (p !== undefined ? `${p}%` : '下载中')
-                    }
+                    format={(p) => (dlItem.downloadedMb > 0 ? `${dlItem.downloadedMb.toFixed(0)} MB${p !== undefined ? ` (${p}%)` : ''}` : p !== undefined ? `${p}%` : t('dep.downloading'))}
                   />
                   <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', height: 16, lineHeight: '16px' }}>
                     {dlItem.log}
@@ -472,19 +493,18 @@ export default function ModelsPage() {
           )
         }
         return (
-          <Button danger type="text" icon={<DeleteOutlined />}
-            onClick={() => handleDeleteVoice(record.name)}>
-            卸载
+          <Button danger type="text" icon={<DeleteOutlined />} onClick={() => handleDeleteVoice(record.name)}>
+            {t('models.uninstall')}
           </Button>
         )
-      }
-    }
+      },
+    },
   ]
 
   const tabItems = [
-    { key: 'all', label: `全部 (${allModels.length})` },
-    { key: 'base', label: `基础依赖 (${allModels.filter(m => m.type === 'base').length})` },
-    { key: 'voice', label: `声音模型 (${allModels.filter(m => m.type === 'voice').length})` },
+    { key: 'all', label: `${t('models.all')} (${allModels.length})` },
+    { key: 'base', label: `${t('models.base')} (${allModels.filter((m) => m.type === 'base').length})` },
+    { key: 'voice', label: `${t('models.voice')} (${allModels.filter((m) => m.type === 'voice').length})` },
   ]
 
   return (
@@ -493,48 +513,61 @@ export default function ModelsPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <Title level={3} style={{ margin: 0, fontWeight: 600 }}>
-            <Space><AppstoreOutlined />模型管理</Space>
+            <Space>
+              <AppstoreOutlined />
+              {t('models.title')}
+            </Space>
           </Title>
           <Text type="secondary" style={{ marginTop: 4, display: 'block', fontSize: 14 }}>
-            统一管理项目依赖的基础模型和你训练/导入的声音模型
+            {t('models.subtitle')}
           </Text>
         </div>
         <Button type="primary" icon={<DownloadOutlined />} onClick={() => setIsImportVisible(true)}>
-          导入声音模型
+          {t('models.import_voice')}
         </Button>
       </div>
 
       {/* Storage paths info */}
-      <div style={{
-        padding: '10px 16px',
-        background: 'var(--color-bg-subtle)',
-        borderRadius: 'var(--radius-lg)',
-        border: '1px solid var(--color-border-subtle)',
-        fontSize: 12,
-        color: 'var(--color-text-tertiary)',
-      }}>
+      <div
+        style={{
+          padding: '10px 16px',
+          background: 'var(--color-bg-subtle)',
+          borderRadius: 'var(--radius-lg)',
+          border: '1px solid var(--color-border-subtle)',
+          fontSize: 12,
+          color: 'var(--color-text-tertiary)',
+        }}
+      >
         {storagePaths.length > 0 ? (
           <Space direction="vertical" size={2}>
-            {storagePaths.map((p, i) => <Text key={i} code style={{ fontSize: 12 }}>{p}</Text>)}
+            {storagePaths.map((p, i) => (
+              <Text key={i} code style={{ fontSize: 12 }}>
+                {p}
+              </Text>
+            ))}
           </Space>
         ) : (
-          <Text type="secondary">加载存储路径中...</Text>
+          <Text type="secondary">{t('models.loading_paths')}</Text>
         )}
       </div>
 
       {/* Batch download missing base models */}
       {baseModelMissing && (
         <Alert
-          type="warning" showIcon
-          message="部分基础依赖模型未就绪"
-          description="HuBERT、RMVPE、BS-RoFormer 或主唱提取模型缺失，训练、分离和转换功能可能无法正常运行。"
+          type="warning"
+          showIcon
+          message={t('models.missing_alert')}
+          description={`${t('models.missing_desc')}${t('models.missing_impact')}`}
           action={
-            <Button size="small" icon={<CloudDownloadOutlined />}
+            <Button
+              size="small"
+              icon={<CloudDownloadOutlined />}
               onClick={async () => {
-                const missing = baseModels.filter(bm => !bm.exists)
-                await Promise.all(missing.map(bm => handleDownloadBase(bm.id)))
-              }}>
-              下载全部缺失
+                const missing = baseModels.filter((bm) => !bm.exists)
+                await Promise.all(missing.map((bm) => handleDownloadBase(bm.id)))
+              }}
+            >
+              {t('models.download_missing')}
             </Button>
           }
         />
@@ -549,7 +582,9 @@ export default function ModelsPage() {
           tabBarStyle={{ padding: '0 20px', marginBottom: 0 }}
           tabBarExtraContent={
             <Space>
-              <Button size="small" onClick={() => loadAll()} loading={loading || baseModelsLoading}>刷新</Button>
+              <Button size="small" onClick={() => loadAll()} loading={loading || baseModelsLoading}>
+                {t('common.refresh')}
+              </Button>
             </Space>
           }
         />
@@ -566,56 +601,37 @@ export default function ModelsPage() {
           rowKey="key"
           size="small"
           expandable={{
-            rowExpandable: (record) =>
-              record.type === 'voice' && (batchesByVoice.get(record.name)?.length ?? 0) > 0,
-            expandedRowRender: (record) => (
-              <BatchTable
-                batches={batchesByVoice.get(record.name) ?? []}
-                currentRunKey={currentRunKey(record.name)}
-                onDelete={handleDeleteBatch}
-                showFingerprint
-              />
-            ),
+            rowExpandable: (record) => record.type === 'voice' && (batchesByVoice.get(record.name)?.length ?? 0) > 0,
+            expandedRowRender: (record) => <BatchTable batches={batchesByVoice.get(record.name) ?? []} currentRunKey={currentRunKey(record.name)} onDelete={handleDeleteBatch} showFingerprint />,
           }}
         />
       </div>
 
       {/* Import modal */}
-      <Modal
-        title="导入声音模型"
-        open={isImportVisible}
-        onCancel={() => !importing && setIsImportVisible(false)}
-        footer={null}
-        maskClosable={!importing}
-        closable={!importing}
-      >
+      <Modal title={t('models.import_voice')} open={isImportVisible} onCancel={() => !importing && setIsImportVisible(false)} footer={null} maskClosable={!importing} closable={!importing}>
         <Space orientation="vertical" size="middle" style={{ width: '100%', marginTop: 16 }}>
           <div>
-            <div style={{ marginBottom: 8 }}><Text strong>模型来源 (URL 或本地路径)</Text></div>
+            <div style={{ marginBottom: 8 }}>
+              <Text strong>{t('models.source_label')}</Text>
+            </div>
             <Space.Compact style={{ width: '100%' }}>
-              <Input
-                value={importSource}
-                onChange={e => setImportSource(e.target.value)}
-                placeholder="https://huggingface.co/.../model.zip 或 本地 .zip/.pth"
-                disabled={importing}
-              />
-              <Button onClick={handleSelectLocal} disabled={importing}>浏览</Button>
+              <Input value={importSource} onChange={(e) => setImportSource(e.target.value)} placeholder={t('models.source_placeholder')} disabled={importing} />
+              <Button onClick={handleSelectLocal} disabled={importing}>
+                {t('common.browse')}
+              </Button>
             </Space.Compact>
             <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
-              支持 .zip (自动解压提取 .pth + .index) 或直接 .pth 文件
+              {t('models.supported_formats')}
             </Text>
           </div>
 
           <div>
-            <div style={{ marginBottom: 8 }}><Text strong>保存名称</Text></div>
-            <Input
-              value={importName}
-              onChange={e => setImportName(e.target.value)}
-              placeholder="例如: my_favorite_voice"
-              disabled={importing}
-            />
+            <div style={{ marginBottom: 8 }}>
+              <Text strong>{t('models.name_label')}</Text>
+            </div>
+            <Input value={importName} onChange={(e) => setImportName(e.target.value)} placeholder={t('models.name_placeholder')} disabled={importing} />
             <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
-              将保存在 {storagePaths[1] ? `${storagePaths[1].split(': ')[1] || ''}` : ''}{importName || '<名称>'}/v2_40k/
+              {t('models.save_location', { dir: storagePaths[1] ? `${storagePaths[1].split(': ')[1] || ''}` : '', name: importName || t('models.name_fallback') })}
             </Text>
           </div>
 
@@ -627,9 +643,11 @@ export default function ModelsPage() {
           )}
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <Button onClick={() => setIsImportVisible(false)} disabled={importing}>取消</Button>
+            <Button onClick={() => setIsImportVisible(false)} disabled={importing}>
+              {t('common.cancel')}
+            </Button>
             <Button type="primary" onClick={handleImport} loading={importing}>
-              {importing ? '正在导入...' : '开始导入'}
+              {importing ? t('models.importing') : t('models.start_import')}
             </Button>
           </div>
         </Space>

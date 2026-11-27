@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import { t } from '@/i18n/runtime'
 
 interface Metrics {
   state: string
@@ -133,7 +134,7 @@ export const useLiveSingingStore = create<LiveSingingState>((set) => ({
       loading: true,
       startError: null,
       progressPercent: 1,
-      progressMessage: '正在准备启动直播引擎...',
+      progressMessage: t('live.preparing_engine'),
       log: '',
     })
 
@@ -174,7 +175,7 @@ export const useLiveSingingStore = create<LiveSingingState>((set) => ({
     }
 
     timeoutId = setTimeout(() => {
-      finish('error', '启动超时：后端没有返回就绪状态。请检查模型路径、音频设备权限或查看引擎日志。')
+      finish('error', t('live.start_timeout'))
     }, 120_000)
 
     try {
@@ -189,7 +190,7 @@ export const useLiveSingingStore = create<LiveSingingState>((set) => ({
       const result = await waitForStartResult
 
       if (result === 'ready') {
-        set({ loading: false, connected: true, progressPercent: 100, progressMessage: '引擎已就绪' })
+        set({ loading: false, connected: true, progressPercent: 100, progressMessage: t('live.engine_ready') })
         return { ok: true }
       }
 
@@ -200,7 +201,7 @@ export const useLiveSingingStore = create<LiveSingingState>((set) => ({
         connected: false,
         startError: useLiveSingingStore.getState().startError,
       })
-      const error: string = useLiveSingingStore.getState().startError || '启动失败，但后端未返回错误详情'
+      const error: string = useLiveSingingStore.getState().startError || t('live.start_failed_no_detail')
       return { ok: false, error }
     } catch (e) {
       cleanupStartWaiters()

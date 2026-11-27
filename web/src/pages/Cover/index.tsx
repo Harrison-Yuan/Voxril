@@ -1,16 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Col, Drawer, Empty, Progress, Row, Select, Slider, Spin, Steps, Tag, message } from 'antd'
-import {
-  AudioOutlined,
-  CustomerServiceOutlined,
-  PlayCircleOutlined,
-  ReloadOutlined,
-  SettingOutlined,
-  SoundOutlined,
-  StopOutlined,
-  ThunderboltOutlined,
-  UploadOutlined,
-} from '@ant-design/icons'
+import { AudioOutlined, CustomerServiceOutlined, PlayCircleOutlined, ReloadOutlined, SettingOutlined, SoundOutlined, StopOutlined, ThunderboltOutlined, UploadOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { open } from '@tauri-apps/plugin-dialog'
 import { convertFileSrc } from '@tauri-apps/api/core'
@@ -19,11 +9,12 @@ import { OutputLibrary } from '../../components/OutputLibrary'
 import { coverApi, DEFAULT_COVER_PARAMS } from '@/api/cover'
 import type { CoverParams, CoverVoice } from '@/api/cover'
 import { useCoverStore, type CoverStage } from '@/store/coverStore'
+import { useI18n } from '@/i18n'
 
-const STAGES: { key: CoverStage; title: string }[] = [
-  { key: 'separate', title: '分离人声' },
-  { key: 'convert', title: '转换音色' },
-  { key: 'merge', title: '合成作品' },
+const STAGES: { key: CoverStage; titleKey: string }[] = [
+  { key: 'separate', titleKey: 'cover.stage_separate' },
+  { key: 'convert', titleKey: 'cover.stage_convert' },
+  { key: 'merge', titleKey: 'infer.merge' },
 ]
 
 const lbl = {
@@ -36,29 +27,26 @@ const lbl = {
 }
 
 function SectionHeader({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--color-border-subtle)', fontSize: 13, fontWeight: 600 }}>
-      {children}
-    </div>
-  )
+  return <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--color-border-subtle)', fontSize: 13, fontWeight: 600 }}>{children}</div>
 }
 
 function formatDate(secs: number): string {
-  if (!secs) return '未知'
+  if (!secs) return ''
   return new Date(secs * 1000).toLocaleDateString()
 }
 
 export default function CoverPage() {
   const navigate = useNavigate()
-  const running = useCoverStore(s => s.running)
-  const stage = useCoverStore(s => s.stage)
-  const percent = useCoverStore(s => s.percent)
-  const log = useCoverStore(s => s.log)
-  const result = useCoverStore(s => s.result)
-  const error = useCoverStore(s => s.error)
-  const start = useCoverStore(s => s.start)
-  const cancel = useCoverStore(s => s.cancel)
-  const reset = useCoverStore(s => s.reset)
+  const { t } = useI18n()
+  const running = useCoverStore((s) => s.running)
+  const stage = useCoverStore((s) => s.stage)
+  const percent = useCoverStore((s) => s.percent)
+  const log = useCoverStore((s) => s.log)
+  const result = useCoverStore((s) => s.result)
+  const error = useCoverStore((s) => s.error)
+  const start = useCoverStore((s) => s.start)
+  const cancel = useCoverStore((s) => s.cancel)
+  const reset = useCoverStore((s) => s.reset)
 
   const [voices, setVoices] = useState<CoverVoice[]>([])
   const [loadingVoices, setLoadingVoices] = useState(true)
@@ -69,30 +57,40 @@ export default function CoverPage() {
 
   useEffect(() => {
     let cancelled = false
-    coverApi.listVoices()
-      .then(list => {
+    coverApi
+      .listVoices()
+      .then((list) => {
         if (cancelled) return
         setVoices(list)
         const remembered = localStorage.getItem('voxril-cover-voice')
-        const pick = list.find(v => v.voice === remembered) ?? list[0]
+        const pick = list.find((v) => v.voice === remembered) ?? list[0]
         if (pick) setSelected(pick.voice)
       })
-      .catch((e: any) => message.error(`加载声音模型失败：${e?.message || e}`))
-      .finally(() => { if (!cancelled) setLoadingVoices(false) })
-    return () => { cancelled = true }
+      .catch((e: any) => message.error(t('cover.load_voices_failed', { msg: e?.message || e })))
+      .finally(() => {
+        if (!cancelled) setLoadingVoices(false)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   // 切换声音时带出该声音保存过的默认生成配置
   useEffect(() => {
     if (!selected) return
     let cancelled = false
-    coverApi.getParams(selected)
-      .then(p => { if (!cancelled) setParams(p) })
+    coverApi
+      .getParams(selected)
+      .then((p) => {
+        if (!cancelled) setParams(p)
+      })
       .catch(() => {})
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [selected])
 
-  const selectedVoice = useMemo(() => voices.find(v => v.voice === selected), [voices, selected])
+  const selectedVoice = useMemo(() => voices.find((v) => v.voice === selected), [voices, selected])
   const songName = songPath.split('/').pop() || songPath
 
   const selectVoice = (voice: string) => {
@@ -106,12 +104,12 @@ export default function CoverPage() {
       const sel = await open({
         directory: false,
         multiple: false,
-        title: '选择原唱歌曲',
+        title: t('cover.pick_song'),
         filters: [{ name: 'Audio', extensions: ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac'] }],
       })
       if (typeof sel === 'string') setSongPath(sel)
     } catch (e) {
-      message.error(`选择歌曲失败：${String(e)}`)
+      message.error(t('cover.pick_song_failed', { msg: String(e) }))
     }
   }
 
@@ -121,20 +119,28 @@ export default function CoverPage() {
   }
 
   const handleGenerate = async () => {
-    if (!selectedVoice) { message.warning('请选择声音模型'); return }
-    if (!songPath) { message.warning('请选择原唱歌曲'); return }
+    if (!selectedVoice) {
+      message.warning(t('cover.warn_select_voice'))
+      return
+    }
+    if (!songPath) {
+      message.warning(t('cover.warn_select_song'))
+      return
+    }
     await start({ model_name: selectedVoice.model_name, song_path: songPath, params })
   }
 
-  const stepIndex = stage === 'done' ? STAGES.length : STAGES.findIndex(s => s.key === stage)
+  const stepIndex = stage === 'done' ? STAGES.length : STAGES.findIndex((s) => s.key === stage)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
-        <div className="icon-badge icon-badge--md" style={{ borderRadius: 10 }}><CustomerServiceOutlined /></div>
+        <div className="icon-badge icon-badge--md" style={{ borderRadius: 10 }}>
+          <CustomerServiceOutlined />
+        </div>
         <div>
-          <h1 className="page-header__title">翻唱直通车</h1>
-          <p className="page-header__subtitle">选声音、选歌、一键生成，其余交给流程</p>
+          <h1 className="page-header__title">{t('cover.title')}</h1>
+          <p className="page-header__subtitle">{t('cover.subtitle')}</p>
         </div>
       </div>
 
@@ -142,22 +148,22 @@ export default function CoverPage() {
       <div className="ant-card" style={{ padding: 0 }}>
         <SectionHeader>
           <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <SoundOutlined style={{ color: 'var(--color-primary-hover)' }} />① 选择声音
-            <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 400, color: 'var(--color-text-tertiary)' }}>
-              点「详情」进入训练页调整该声音
-            </span>
+            <SoundOutlined style={{ color: 'var(--color-primary-hover)' }} />① {t('cover.pick_voice')}
+            <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 400, color: 'var(--color-text-tertiary)' }}>{t('cover.pick_voice_hint')}</span>
           </span>
         </SectionHeader>
         <div style={{ padding: 20 }}>
           {loadingVoices ? (
             <Spin size="small" />
           ) : voices.length === 0 ? (
-            <Empty description="还没有可用的声音模型">
-              <Button type="primary" onClick={() => navigate('/train')}>去训练一个声音</Button>
+            <Empty description={t('cover.no_voices')}>
+              <Button type="primary" onClick={() => navigate('/train')}>
+                {t('cover.go_train')}
+              </Button>
             </Empty>
           ) : (
             <Row gutter={[12, 12]}>
-              {voices.map(v => {
+              {voices.map((v) => {
                 const active = v.voice === selected
                 return (
                   <Col key={v.voice} xs={24} sm={12} lg={8}>
@@ -179,25 +185,25 @@ export default function CoverPage() {
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <AudioOutlined style={{ color: active ? 'var(--color-primary-hover)' : 'var(--color-text-tertiary)' }} />
-                        <span style={{ fontSize: 14, fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {v.voice}
-                        </span>
-                        {active && <Tag color="purple" style={{ marginInlineEnd: 0, fontSize: 10 }}>已选</Tag>}
+                        <span style={{ fontSize: 14, fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.voice}</span>
+                        {active && (
+                          <Tag color="purple" style={{ marginInlineEnd: 0, fontSize: 10 }}>
+                            {t('cover.selected')}
+                          </Tag>
+                        )}
                       </div>
-                      <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
-                        更新于 {formatDate(v.updated_at)}
-                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>{t('cover.updated_at', { date: formatDate(v.updated_at) || t('cover.date_unknown') })}</div>
                       <Button
                         size="small"
                         type="link"
                         icon={<SettingOutlined />}
                         style={{ padding: 0, alignSelf: 'flex-start', height: 20 }}
-                        onClick={e => {
+                        onClick={(e) => {
                           e.stopPropagation()
                           navigate(`/train?voice=${encodeURIComponent(v.voice)}`)
                         }}
                       >
-                        详情
+                        {t('cover.detail')}
                       </Button>
                     </div>
                   </Col>
@@ -212,28 +218,24 @@ export default function CoverPage() {
       <div className="ant-card" style={{ padding: 0 }}>
         <SectionHeader>
           <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <PlayCircleOutlined style={{ color: 'var(--color-primary-hover)' }} />② 选择原唱歌曲
+            <PlayCircleOutlined style={{ color: 'var(--color-primary-hover)' }} />② {t('cover.pick_song')}
           </span>
         </SectionHeader>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Row gutter={12} align="middle">
             <Col flex="auto">
               <Button icon={<UploadOutlined />} onClick={selectSong} disabled={running} block style={{ height: 44 }}>
-                {songPath ? '更换歌曲' : '选择原唱歌曲'}
+                {songPath ? t('cover.change_song') : t('cover.pick_song')}
               </Button>
             </Col>
             <Col>
               <Button icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)} disabled={running} style={{ height: 44 }}>
-                生成配置
+                {t('cover.settings')}
               </Button>
             </Col>
           </Row>
-          {songPath && (
-            <Alert type="info" showIcon message={songName} style={{ fontSize: 12 }} />
-          )}
-          <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
-            不调整生成配置也可以直接生成，将使用{selectedVoice ? `「${selectedVoice.voice}」` : '该声音'}的默认参数。
-          </div>
+          {songPath && <Alert type="info" showIcon message={songName} style={{ fontSize: 12 }} />}
+          <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>{t('cover.default_params_hint', { voice: selectedVoice?.voice || t('cover.this_voice') })}</div>
         </div>
       </div>
 
@@ -248,32 +250,25 @@ export default function CoverPage() {
         block
         style={{ height: 52, fontSize: 15, fontWeight: 600 }}
       >
-        {running ? '生成中...' : '一键生成翻唱'}
+        {running ? t('cover.generating') : t('cover.generate')}
       </Button>
 
-      {error && (
-        <Alert type="error" showIcon message="翻唱生成失败" description={error} />
-      )}
+      {error && <Alert type="error" showIcon message={t('cover.failed')} description={error} />}
 
       {(running || log) && (
         <div className="ant-card animate-fade-in" style={{ padding: 0 }}>
           <SectionHeader>
             <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              生成进度
+              {t('cover.progress')}
               {running && (
                 <Button danger size="small" icon={<StopOutlined />} onClick={cancel} style={{ marginLeft: 'auto' }}>
-                  取消
+                  {t('common.cancel')}
                 </Button>
               )}
             </span>
           </SectionHeader>
           <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <Steps
-              size="small"
-              current={stepIndex < 0 ? 0 : stepIndex}
-              status={error ? 'error' : stage === 'done' ? 'finish' : 'process'}
-              items={STAGES.map(s => ({ title: s.title }))}
-            />
+            <Steps size="small" current={stepIndex < 0 ? 0 : stepIndex} status={error ? 'error' : stage === 'done' ? 'finish' : 'process'} items={STAGES.map((s) => ({ title: t(s.titleKey) }))} />
             <div>
               <Progress
                 percent={Math.round(percent)}
@@ -291,28 +286,29 @@ export default function CoverPage() {
         <div className="ant-card animate-fade-in" style={{ padding: 0 }}>
           <SectionHeader>
             <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <PlayCircleOutlined style={{ color: 'var(--color-primary-hover)' }} />翻唱作品
+              <PlayCircleOutlined style={{ color: 'var(--color-primary-hover)' }} />
+              {t('cover.work')}
             </span>
           </SectionHeader>
           <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
             <audio controls autoPlay src={convertFileSrc(result.mixed_path)} style={{ width: '100%' }} />
-            <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', wordBreak: 'break-all' }}>
-              {result.mixed_path}
-            </div>
+            <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', wordBreak: 'break-all' }}>{result.mixed_path}</div>
             <div style={{ display: 'flex', gap: 8 }}>
+              <Button size="small" icon={<ReloadOutlined />} disabled={running} onClick={handleGenerate}>
+                {t('cover.regenerate')}
+              </Button>
               <Button
                 size="small"
-                icon={<ReloadOutlined />}
+                onClick={() => {
+                  setSongPath('')
+                  reset()
+                }}
                 disabled={running}
-                onClick={handleGenerate}
               >
-                再生成一次
-              </Button>
-              <Button size="small" onClick={() => { setSongPath(''); reset() }} disabled={running}>
-                换一首歌
+                {t('cover.another_song')}
               </Button>
               <Button size="small" type="link" onClick={() => navigate('/infer')}>
-                打开成品库
+                {t('cover.open_library')}
               </Button>
             </div>
           </div>
@@ -320,66 +316,37 @@ export default function CoverPage() {
       )}
 
       {/* 语音转换的作品列表：与「语音转换」页共用同一份成品库数据 */}
-      <OutputLibrary onlyWorks refreshToken={result?.mixed_path || ''} title="作品列表" />
+      <OutputLibrary onlyWorks refreshToken={result?.mixed_path || ''} title={t('library.works_title')} />
 
-      <Drawer
-        title={selectedVoice ? `生成配置 · ${selectedVoice.voice}` : '生成配置'}
-        open={settingsOpen}
-        onClose={closeSettings}
-        width={380}
-        destroyOnClose
-      >
+      <Drawer title={selectedVoice ? t('cover.settings_with_voice', { voice: selectedVoice.voice }) : t('cover.settings')} open={settingsOpen} onClose={closeSettings} width={380} destroyOnClose>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
           <div>
-            <div style={lbl}>变调（半音）：{params.transpose}</div>
-            <Slider
-              min={-12}
-              max={12}
-              step={1}
-              value={params.transpose}
-              marks={{ '-12': '-12', 0: '0', 12: '+12' }}
-              onChange={v => setParams(p => ({ ...p, transpose: v }))}
-            />
+            <div style={lbl}>{t('cover.transpose', { value: params.transpose })}</div>
+            <Slider min={-12} max={12} step={1} value={params.transpose} marks={{ '-12': '-12', 0: '0', 12: '+12' }} onChange={(v) => setParams((p) => ({ ...p, transpose: v }))} />
           </div>
           <div>
-            <div style={lbl}>音高提取算法</div>
+            <div style={lbl}>{t('cover.f0_method')}</div>
             <Select
               value={params.f0_method}
               style={{ width: '100%' }}
-              onChange={v => setParams(p => ({ ...p, f0_method: v }))}
+              onChange={(v) => setParams((p) => ({ ...p, f0_method: v }))}
               options={[
-                { value: 'rmvpe', label: 'RMVPE（推荐）' },
-                { value: 'harvest', label: 'Harvest（低音好）' },
-                { value: 'pm', label: 'PM（最快）' },
+                { value: 'rmvpe', label: t('cover.f0_rmvpe') },
+                { value: 'harvest', label: t('cover.f0_harvest') },
+                { value: 'pm', label: t('cover.f0_pm') },
               ]}
             />
           </div>
           <div>
-            <div style={lbl}>检索特征比例：{params.index_rate}</div>
-            <Slider
-              min={0}
-              max={1}
-              step={0.05}
-              value={params.index_rate}
-              marks={{ 0: '0', 0.5: '0.5', 1: '1' }}
-              onChange={v => setParams(p => ({ ...p, index_rate: v }))}
-            />
+            <div style={lbl}>{t('cover.index_rate', { value: params.index_rate })}</div>
+            <Slider min={0} max={1} step={0.05} value={params.index_rate} marks={{ 0: '0', 0.5: '0.5', 1: '1' }} onChange={(v) => setParams((p) => ({ ...p, index_rate: v }))} />
           </div>
           <div>
-            <div style={lbl}>人声音量（dB）：{params.vocal_gain}</div>
-            <Slider
-              min={-6}
-              max={12}
-              step={1}
-              value={params.vocal_gain}
-              marks={{ 0: '0', 6: '+6', 12: '+12' }}
-              onChange={v => setParams(p => ({ ...p, vocal_gain: v }))}
-            />
+            <div style={lbl}>{t('cover.vocal_gain', { value: params.vocal_gain })}</div>
+            <Slider min={-6} max={12} step={1} value={params.vocal_gain} marks={{ 0: '0', 6: '+6', 12: '+12' }} onChange={(v) => setParams((p) => ({ ...p, vocal_gain: v }))} />
           </div>
-          <Button onClick={() => setParams(DEFAULT_COVER_PARAMS)}>恢复默认</Button>
-          <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', lineHeight: 1.6 }}>
-            配置跟着声音走，关闭本面板即保存为「{selectedVoice?.voice || '当前声音'}」的默认参数。
-          </div>
+          <Button onClick={() => setParams(DEFAULT_COVER_PARAMS)}>{t('cover.reset_params')}</Button>
+          <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', lineHeight: 1.6 }}>{t('cover.params_saved_hint', { voice: selectedVoice?.voice || t('cover.current_voice') })}</div>
         </div>
       </Drawer>
     </div>
